@@ -1,0 +1,13 @@
+Dataset_Name,Category,format,Directory,Included
+DDIExtraction 2013,Bio/Medical Research Literature,xml,dataset/bio_med_research/DDICorpus,yes
+Cirrhosis Prediction Dataset,Other QAs,csv,dataset/other/cirrhosis,yes
+Heart Failure Prediction Dataset,Other QAs,csv,dataset/other/heart,yes
+Hepatitis C Prediction Dataset,Other QAs,csv,dataset/other/hepatitis,yes
+NCBI, Bio/Medical Research Literature,json,dataset/bio_med_research/NCBI,no
+CORD-19, Bio/Medical Research Literature,json,dataset/bio_med_research/CORD19,yes
+HOC (Hallmarks of Cancer), Bio/Medical Research Literature,json,dataset/bio_med_research/hoc,yes
+PTB-XL, Other QAs,csv,dataset/other/ptb-xl,no
+TREC-COVID, Bio/Medical Research Literature,csv,dataset/bio_med_research/trec-covid,yes
+NFCorpus, Consumer Questions,"queries,docs,ids,qrel",dataset/consumer_questions/nfcorpus,yes
+IS-A, Other QAs,edgelist,dataset/other/isa,yes
+SourceData, Bio/Medical Research Literature,csv,dataset/bio_med_research/SourceData,yes
