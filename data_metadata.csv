@@ -24,3 +24,8 @@ RadQA, Medical Exam Questions, jsonl, dataset/QAs/RadQA,no, true
 CliCR, Medical Exam Questions, jsonl, dataset/QAs/CliCR,no, true
 Body Fat Prediction Dataset, Other-Clinical Prediction, csv, dataset/other-clinical/bodyfat,yes, no
 BC5CDR, Bio/Medical Research Literature, csv, dataset/bio_med_research/bc5cdr,true, false
+MIMIC-III, Other-Database, csv, dataset/other-database/mimic-iii,false, false
+Stroke Prediction Dataset, Other-Clinical Prediction, csv, dataset/other-clinical/stroke,true, false
+MeQSum, Consumer Questions, , dataset/consumer/meqsum,, 
+MedDialog, Consumer Questions, , dataset/consumer/meddialog,, 
+ExtMarker, Other-Time Series, , dataset/other/extmarker,, 
