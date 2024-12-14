@@ -1,4 +1,4 @@
-Dataset_Name,Category,format,Directory,Included, QA Dataset
+Dataset_Name,Category,format,Directory,Included, QA Dataset, Deduplicated
 DDIExtraction 2013,Bio/Medical Research Literature,xml,dataset/bio_med_research/DDICorpus,true, false
 Cirrhosis Prediction Dataset,Other-Clinical Prediction,csv,dataset/other-clinical/cirrhosis,true, false
 Heart Failure Prediction Dataset,Other-Clinical Prediction,csv,dataset/other-clinical/heart,true, false
@@ -14,11 +14,11 @@ SourceData, Bio/Medical Research Literature,csv,dataset/bio_med_research/SourceD
 MedNLI, Medical Exam Questions, jsonl, dataset/medical_exam_questions/mednli,false, false
 BioNLI, Bio/Medical Research Literature, csv, dataset/bio_med_research/bioNLI,true, false
 RuMedNLI, Medical Exam Questions, csv, dataset/medical_exam_questions/rumednli,false, false
-PubMedQA, Bio/Medical Research Literature, json, dataset/QAs/pubmedqa,true, true
-MedMCQA, Medical Exam Questions, jsonl, dataset/QAs/MedMCQA,true, true
+PubMedQA, Bio/Medical Research Literature, json, dataset/QAs/pubmedqa,true, true, true
+MedMCQA, Medical Exam Questions, jsonl, dataset/QAs/MedMCQA,true, true, true
 MedQA-USMLE, Medical Exam Questions, jsonl, dataset/QAs/MedQA-USMLE,true, true
 LiveQA TREC 2017, Consumer Questions, xml, dataset/QAs/LiveQA-TREC-2017,true, true
-MecicationQA, Consumer Questions, csv, dataset/QAs/MecicationQA,true, true
+MecicationQA, Consumer Questions, csv, dataset/QAs/MecicationQA,true, true, true
 MedQuAD, Consumer Questions, xml, dataset/QAs/MedQuAD,true, true
 RadQA, Medical Exam Questions, jsonl, dataset/QAs/RadQA,no, true
 CliCR, Medical Exam Questions, jsonl, dataset/QAs/CliCR,no, true
