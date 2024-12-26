@@ -16,10 +16,10 @@ BioNLI, Bio/Medical Research Literature, csv, dataset/bio_med_research/bioNLI,tr
 RuMedNLI, Medical Exam Questions, csv, dataset/medical_exam_questions/rumednli,false, false
 PubMedQA, Bio/Medical Research Literature, json, dataset/QAs/pubmedqa,true, true, true
 MedMCQA, Medical Exam Questions, jsonl, dataset/QAs/MedMCQA,true, true, true
-MedQA-USMLE, Medical Exam Questions, jsonl, dataset/QAs/MedQA-USMLE,true, true
-LiveQA TREC 2017, Consumer Questions, xml, dataset/QAs/LiveQA-TREC-2017,true, true
+MedQA-USMLE, Medical Exam Questions, jsonl, dataset/QAs/MedQA-USMLE,true, true, true
+LiveQA TREC 2017, Consumer Questions, xml, dataset/QAs/LiveQA-TREC-2017,true, true, true
 MecicationQA, Consumer Questions, csv, dataset/QAs/MecicationQA,true, true, true
-MedQuAD, Consumer Questions, xml, dataset/QAs/MedQuAD,true, true
+MedQuAD, Consumer Questions, xml, dataset/QAs/MedQuAD,true, true, true
 RadQA, Medical Exam Questions, jsonl, dataset/QAs/RadQA,no, true
 CliCR, Medical Exam Questions, jsonl, dataset/QAs/CliCR,no, true
 Body Fat Prediction Dataset, Other-Clinical Prediction, csv, dataset/other-clinical/bodyfat,yes, no
