@@ -1,0 +1,5 @@
+dataset_name, column_name
+bc5cdr, text
+BioNLI, "supp_set, conclusion, label_cat, ori_conclusion"
+CORD19, "title, abstract, full_text"
+DDCICorpus, "sentence"
