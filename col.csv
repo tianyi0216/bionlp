@@ -3,3 +3,7 @@ bc5cdr, text
 BioNLI, "supp_set, conclusion, label_cat, ori_conclusion"
 CORD19, "title, abstract, full_text"
 DDCICorpus, "sentence"
+hoc, "text, label"
+pubmed, "MedlineCitation, PubmedData"
+SourceData, "words,labels,tag_mask,text"
+trec_covid, "title, text, metadata"
