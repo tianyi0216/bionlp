@@ -1,7 +1,7 @@
 # code to merge all previously deduplicated qa datas into a single dataset
 import pandas as pd
 import os
-
+from tqdm import tqdm
 # load all deduplicated datasets
 def load_col_info(path):
     return pd.read_csv(path)
@@ -29,11 +29,12 @@ def normalize_data(df, dataset_name):
 
     
 def main():
+    print("Loading column information...")
     col_info = load_col_info("deduplicated_data/QAs/col_info.csv")
 
     all_data = []
 
-    for _, row in col_info.iterrows():
+    for _, row in tqdm(col_info.iterrows(), desc="Processing datasets"):
         dataset_name = row['Dataset']
         column_names = row['Column_Name'].replace('"', '').split(',')
 
@@ -44,8 +45,10 @@ def main():
             normalized_df = normalize_data(df, dataset_name)
             all_data.append(normalized_df)
     
+    print("Merging data...")
     final_df = pd.concat(all_data, ignore_index=True)
     final_df.to_csv("deduplicated_data/QAs/merged_qa_data.csv", index=False)
+    print("Data merged successfully!")
 
 if __name__ == "__main__":
     main()
