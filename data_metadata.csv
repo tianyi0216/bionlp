@@ -12,7 +12,7 @@ NFCorpus, Consumer Questions,"queries,docs,ids,qrel",dataset/consumer_questions/
 IS-A, Other-Link Prediction,edgelist,dataset/other-link/isa,true, false
 SourceData, Bio/Medical Research Literature,csv,dataset/bio_med_research/SourceData,true, false
 MedNLI, Medical Exam Questions, jsonl, dataset/medical_exam_questions/mednli,false, false
-BioNLI, Bio/Medical Research Literature, csv, dataset/bio_med_research/bioNLI,true, false
+BioNLI, Bio/Medical Research Literature, csv, dataset/bio_med_research/bioNLI,true, false, true
 RuMedNLI, Medical Exam Questions, csv, dataset/medical_exam_questions/rumednli,false, false
 PubMedQA, Bio/Medical Research Literature, json, dataset/QAs/pubmedqa,true, true, true
 MedMCQA, Medical Exam Questions, jsonl, dataset/QAs/MedMCQA,true, true, true
