@@ -127,11 +127,17 @@ if __name__ == "__main__":
     dataset_name = sys.argv[1]
     file_type = sys.argv[2]
     data = load_dataset("dataset/QAs/" + dataset_name, file_type)
+    total_num = 0
     for key, value in data.items():
-        print(f"For the {dataset_name} file {key}")
-        print(f"There are {count_data_num(value)} samples in the dataset.")
-
+        # print(f"For the {dataset_name} file {key}")
+        # print(f"There are {count_data_num(value)} samples in the dataset.")
+        total_num += count_data_num(value)
+    print(f"Total number of samples in the dataset: {total_num}")
     deduplicated_data = load_dataset("deduplicated_data/QAs/" + dataset_name, "csv")
+    total_num_dedup = 0
     for key, value in deduplicated_data.items():
-        print(f"For the deduplicated {dataset_name} file {key}")
-        print(f"There are {count_data_num(value)} samples in the dataset.")
+        # print(f"For the deduplicated {dataset_name} file {key}")
+        # print(f"There are {count_data_num(value)} samples in the dataset.")
+        total_num_dedup += count_data_num(value)
+    print(f"Total number of samples in the deduplicated dataset: {total_num_dedup}")
+
