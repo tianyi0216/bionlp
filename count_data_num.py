@@ -4,6 +4,108 @@ import pandas as pd
 import json
 from tqdm import tqdm
 import sys
+import xml.etree.ElementTree as ET
+
+def parse_nlm_questions(file_path):
+    # Parse the XML file
+    tree = ET.parse(file_path)
+    root = tree.getroot()
+
+    # Initialize storage for the parsed data
+    data = []
+
+    # Iterate through each NLM-QUESTION
+    for question in root.findall("NLM-QUESTION"):
+        qid = question.attrib.get("qid", None)
+        subject = question.find("SUBJECT").text if question.find("SUBJECT") is not None else None
+        message = question.find("MESSAGE").text if question.find("MESSAGE") is not None else None
+
+        # Extract sub-questions
+        sub_questions = question.find("SUB-QUESTIONS")
+        if sub_questions is not None:
+            for sub_question in sub_questions.findall("SUB-QUESTION"):
+                # Extract annotations
+                annotations = sub_question.find("ANNOTATIONS")
+                focus = annotations.find("FOCUS").text if annotations is not None and annotations.find("FOCUS") is not None else None
+                qtype = annotations.find("TYPE").text if annotations is not None and annotations.find("TYPE") is not None else None
+
+                # Extract answers
+                answers_elem = sub_question.find("ANSWERS")
+                answers = []
+                if answers_elem is not None:
+                    for answer in answers_elem.findall("ANSWER"):
+                        answers.append(answer.text.strip())
+
+                # Store the parsed data
+                data.append({
+                    "qid": qid,
+                    "subject": subject,
+                    "question": message,
+                    "focus": focus,
+                    "type": qtype,
+                    "answer": answers
+                })
+
+    # Convert data to a pandas DataFrame
+    return pd.DataFrame(data)
+
+def parse_nlm_questions_test(file_path):
+    # Parse the XML file
+    tree = ET.parse(file_path)
+    root = tree.getroot()
+
+    # Initialize storage for the parsed data
+    data = []
+
+    # Iterate through each NLM-QUESTION
+    for question in root.findall("NLM-QUESTION"):
+        qid = question.attrib.get("qid", None)
+
+        # Extract subject and message
+        subject_elem = question.find("./Original-Question/SUBJECT")
+        subject = subject_elem.text.strip() if subject_elem.text is not None else None
+
+        message_elem = question.find("./Original-Question/MESSAGE")
+        message = message_elem.text.strip() if message_elem.text is not None else None
+
+        # Extract answers
+        answers = []
+        reference_answers = question.find("ReferenceAnswers")
+        if reference_answers is not None:
+            for ref_answer in reference_answers.findall("RefAnswer"):
+                answer_elem = ref_answer.find("ANSWER")
+                if answer_elem is not None:
+                    # Join all parts of the answer into a single string, stripping whitespace
+                    answer_text = "".join(answer_elem.itertext()).strip()
+                    answers.append(answer_text)
+            if reference_answers.find("RefAnswer") is None:
+                for ref_answer in reference_answers.findall("ReferenceAnswer"):
+                    answer_elem = ref_answer.find("ANSWER")
+                    if answer_elem is not None:
+                        # Join all parts of the answer into a single string, stripping whitespace
+                        answer_text = "".join(answer_elem.itertext()).strip()
+                        answers.append(answer_text)
+
+        # Append to the dataset
+        data.append({
+            "qid": qid,
+            "subject": subject,
+            "question": message,
+            "answer": answers  # Store all answers as a list
+        })
+
+    # Convert data to a pandas DataFrame
+    return pd.DataFrame(data)
+
+# Remove NaN values from the "question" and "answer" columns
+def clean_dataframe(df):
+    # Ensure "question" and "answer" columns exist and are non-empty
+    df["question"] = df["question"].fillna("").astype(str)
+    df["answer"] = df["answer"].fillna("").astype(str)
+
+    # Remove rows where "question" or "answer" is an empty string
+    df = df[(df["question"].str.strip() != "") & (df["answer"].str.strip() != "")]
+    return df.reset_index(drop=True)
 
 def load_dataset(path, filetype = "csv"):
     if filetype == "csv":
@@ -41,6 +143,25 @@ def load_dataset(path, filetype = "csv"):
             with open(f, "r") as file:
                 data = json.load(file)
             ds[f] = pd.DataFrame(data)
+        return ds
+    elif filetype == "xml":
+        all_files = []
+        for root, dirs, files in tqdm(os.walk(path), desc = "Loading XML files"):
+            for file in tqdm(files, desc = "Processing file"):
+                if file.endswith(".xml"):
+                    all_files.append(os.path.join(root, file))
+        ds = {}
+        for f in all_files:
+            print("Current file: ", f)
+            if "LiveQA" in f:
+                if "summaries" in f:
+                    continue
+                if "Test" in f:
+                    ds[f] = clean_dataframe(parse_nlm_questions_test(f))
+                else:
+                    ds[f] = clean_dataframe(parse_nlm_questions(f))
+            else:
+                pass
         return ds
     
 def parse_document_xml(file_path):
@@ -129,6 +250,8 @@ if __name__ == "__main__":
     data = load_dataset("dataset/QAs/" + dataset_name, file_type)
     total_num = 0
     for key, value in data.items():
+        if "summaries" in key:
+            continue
         # print(f"For the {dataset_name} file {key}")
         # print(f"There are {count_data_num(value)} samples in the dataset.")
         total_num += count_data_num(value)
