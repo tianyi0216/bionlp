@@ -4,8 +4,8 @@ Cirrhosis Prediction Dataset,Other-Clinical Prediction,csv,dataset/other-clinica
 Heart Failure Prediction Dataset,Other-Clinical Prediction,csv,dataset/other-clinical/heart,true, false
 Hepatitis C Prediction Dataset,Other-Clinical Prediction,csv,dataset/other-clinical/hepatitis,true, false
 NCBI, Bio/Medical Research Literature,json,dataset/bio_med_research/NCBI,false, false
-CORD-19, Bio/Medical Research Literature,json,dataset/bio_med_research/CORD19,true, false
-HOC (Hallmarks of Cancer), Bio/Medical Research Literature,json,dataset/bio_med_research/hoc,true, false
+CORD-19, Bio/Medical Research Literature,json,dataset/bio_med_research/CORD19,true, false, true
+HOC (Hallmarks of Cancer), Bio/Medical Research Literature,json,dataset/bio_med_research/hoc,true, false, true
 PTB-XL, Other-Clinical Prediction,csv,dataset/other/ptb-xl,false, false
 TREC-COVID, Bio/Medical Research Literature,csv,dataset/bio_med_research/trec-covid,true, false
 NFCorpus, Consumer Questions,"queries,docs,ids,qrel",dataset/consumer_questions/nfcorpus,true, false
