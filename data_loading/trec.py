@@ -140,7 +140,7 @@ def parse_xml_file(file_path):
 def load_trec_data(data_dir):
     dataset = []
 
-    for root, dirs, files in os.walk(data_dir):
+    for root, dirs, files in tqdm(os.walk(data_dir), desc="Loading and processing TREC data", total=len(os.listdir(data_dir))):
         for file in files:
             if file.endswith(".xml"):
                 file_path = os.path.join(root, file)
@@ -154,3 +154,4 @@ def load_trec_data(data_dir):
 
 if __name__ == "__main__":
     download_and_prepare_trec_data("data/trec_data")
+    df = load_trec_data("data/trec_data")
