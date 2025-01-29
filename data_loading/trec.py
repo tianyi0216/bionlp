@@ -4,7 +4,7 @@ import zipfile
 import requests
 from tqdm import tqdm
 import xml.etree.ElementTree as ET
-
+import pandas as pd
 class Downloader:
     """Base class for downloading datasets."""
     
@@ -79,8 +79,78 @@ def download_and_prepare_trec_data(data_dir):
 
     print("TREC data downloaded and unzipped successfully!")
 
+def parse_xml_file(file_path):
+    tree = ET.parse(file_path)
+    root = tree.getroot()
+    
+    trial_data = {
+        'nct_id': None,
+        'brief_title': None,
+        'brief_summary': None,
+        'detailed_description': None,
+        'condition': None,
+        'intervention_type': None,
+        'intervention_name': None,
+        'phase': None,
+        'study_type': None,
+        'min_age': None,
+        'max_age': None,
+        'gender': None,
+        'location': None
+    }
+
+     # Extract basic information
+    trial_data['nct_id'] = root.find('.//nct_id').text if root.find('.//nct_id') is not None else None
+    trial_data['brief_title'] = root.find('.//brief_title').text if root.find('.//brief_title') is not None else None
+    
+    # Extract summary and description
+    brief_summary = root.find('.//brief_summary/textblock')
+    if brief_summary is not None:
+        trial_data['brief_summary'] = ' '.join(brief_summary.text.split())
+        
+    detailed_desc = root.find('.//detailed_description/textblock')
+    if detailed_desc is not None:
+        trial_data['detailed_description'] = ' '.join(detailed_desc.text.split())
+    
+    # Extract condition and intervention
+    trial_data['condition'] = root.find('.//condition').text if root.find('.//condition') is not None else None
+    
+    intervention = root.find('.//intervention')
+    if intervention is not None:
+        trial_data['intervention_type'] = intervention.find('intervention_type').text if intervention.find('intervention_type') is not None else None
+        trial_data['intervention_name'] = intervention.find('intervention_name').text if intervention.find('intervention_name') is not None else None
+    
+    # Extract study information
+    trial_data['phase'] = root.find('.//phase').text if root.find('.//phase') is not None else None
+    trial_data['study_type'] = root.find('.//study_type').text if root.find('.//study_type') is not None else None
+    
+    # Extract eligibility information
+    eligibility = root.find('.//eligibility')
+    if eligibility is not None:
+        trial_data['min_age'] = eligibility.find('minimum_age').text if eligibility.find('minimum_age') is not None else None
+        trial_data['max_age'] = eligibility.find('maximum_age').text if eligibility.find('maximum_age') is not None else None
+        trial_data['gender'] = eligibility.find('gender').text if eligibility.find('gender') is not None else None
+    
+    # Extract location
+    location = root.find('.//location/facility/name')
+    trial_data['location'] = location.text if location is not None else None
+    
+    return trial_data
+
 def load_trec_data(data_dir):
     dataset = []
+
+    for root, dirs, files in os.walk(data_dir):
+        for file in files:
+            if file.endswith(".xml"):
+                file_path = os.path.join(root, file)
+                try:
+                    trial_data = parse_xml_file(file_path)
+                    dataset.append(trial_data)
+                except Exception as e:
+                    print(f"Error parsing {file_path}: {e}")
+
+    return pd.DataFrame(dataset)
 
 if __name__ == "__main__":
     download_and_prepare_trec_data("data/trec_data")
