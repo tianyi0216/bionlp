@@ -22,4 +22,14 @@ def check_if_file_exists(file_path):
 
 def load_data(data_dir):
     """Load the data."""
+    if not check_if_file_exists(data_dir):
+        raise FileNotFoundError(f"The directory {data_dir} does not exist.")
     return pd.read_csv(data_dir)
+
+
+if __name__ == "__main__":
+    urls = ["https://data.csiro.au/collection/csiro:17152v4"]
+    downloader = Downloader(dataset_name="csiro_collection", urls=urls)
+    downloader.download()
+
+    data_dir = "data/collection"
