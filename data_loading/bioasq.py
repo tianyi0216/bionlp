@@ -37,4 +37,4 @@ if __name__ == "__main__":
     downloader = Downloader(dataset_name="csiro_collection", urls=urls)
     downloader.download()
 
-    data_dir = "data/collection"
+    data_dir = "data/BioASQ"
