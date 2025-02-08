@@ -8,5 +8,5 @@
 /data_loading/data
 /data
 /time-series-forecasting-with-UORO-RTRL-LMS-and-linear-regression
-/trial_data
+/clinical_trial/trial_data
 .DS_Store
