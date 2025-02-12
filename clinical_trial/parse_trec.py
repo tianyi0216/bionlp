@@ -13,10 +13,11 @@ def parse_xml_file(file_path, selected_fields=None):
         file_path (str): Path to XML file
         selected_fields (list): List of field names to extract. If None, extracts all fields.
     """
+    # object to parse the xml file
     tree = ET.parse(file_path)
     root = tree.getroot()
     
-    # Define comprehensive field mappings
+    # Field mappings
     field_mappings = {
         # Basic Information
         'nct_id': './/nct_id',
@@ -109,7 +110,7 @@ def parse_xml_file(file_path, selected_fields=None):
     # Extract data for each selected field
     for field in selected_fields:
         if field not in field_mappings:
-            print(f"Warning: Field '{field}' not found in mappings")
+            print(f"Selected field '{field}' not found in mappings")
             continue
             
         xpath = field_mappings[field]
