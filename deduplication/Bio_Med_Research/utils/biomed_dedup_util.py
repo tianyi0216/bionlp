@@ -19,6 +19,79 @@ classifier = MedImageInsight(
     language_model_name="language_model.pth"
 )
 
+# Dataset Loading
+# loading dataset
+def parse_xml(file):
+    """
+    Parse the xml file into a pandas dataframe.
+    """
+    tree = ET.parse(file)
+    root = tree.getroot()
+
+    sentence_data = []
+    for sentence in root.findall('sentence'):
+        sentence_id = sentence.get('id')
+        sentence_text = sentence.get('text')
+
+        sentence_data.append({
+            "sentence_id": sentence_id,
+            "sentence_text": sentence_text
+        })
+
+    return pd.DataFrame(sentence_data)
+
+
+def load_dataset(path, filetype = "csv"):
+    """
+    Load the dataset from the given path. It returns a dictionary with the file path as the key and the dataframe as the value for any file that is the given filetype in the given path.
+    """
+    if filetype == "csv":
+        all_files = []
+        for root, dirs, files in tqdm(os.walk(path), desc = "Loading CSV files"):
+            for file in tqdm(files, desc = "Processing file"):
+                if file.endswith(".csv"):
+                    all_files.append(os.path.join(root, file))
+        ds = {}
+        for f in all_files:
+            df = pd.read_csv(f)
+            ds[f] = df
+        return ds
+    elif filetype == "xml":
+        all_files = []
+        for root, dirs, files in tqdm(os.walk(path), desc = "Loading XML files"):
+            for file in tqdm(files, desc = "Processing file"):
+                if file.endswith(".xml"):
+                    all_files.append(os.path.join(root, file))
+        ds = {}
+        for f in all_files:
+            ds[f] = parse_xml(f)
+        return ds
+    elif filetype == "jsonl":
+        all_files = []
+        for root, dirs, files in tqdm(os.walk(path), desc = "Loading JSONL files"):
+            for file in tqdm(files, desc = "Processing file"):
+                if file.endswith(".jsonl"):
+                    all_files.append(os.path.join(root, file))
+        ds = {}
+        for f in all_files:
+            print("current file: ", f)
+            with open(f, "r") as file:
+                data = [json.loads(line) for line in file]
+            ds[f] = pd.DataFrame(data)
+        return ds
+    elif filetype == "json":
+        all_files = []
+        for root, dirs, files in tqdm(os.walk(path), desc = "Loading JSON files"):
+            for file in tqdm(files, desc = "Processing file"):
+                if file.endswith(".json"):
+                    all_files.append(os.path.join(root, file))
+        ds = {}
+        for f in all_files:
+            with open(f, "r") as file:
+                data = json.load(file)
+            ds[f] = pd.DataFrame(data)
+        return ds
+
 # deduplicate the dataset
 def get_embeddings(texts, batch_size = 64):
     embeddings = []
