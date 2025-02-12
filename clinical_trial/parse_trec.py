@@ -3,6 +3,7 @@ import os
 import xml.etree.ElementTree as ET
 import pandas as pd
 from tqdm import tqdm
+import sys
 
 def parse_xml_file(file_path, selected_fields=None):
     """
@@ -150,3 +151,9 @@ def load_trec_data(data_dir, selected_fields=None):
                     print(f"Error parsing {file_path}: {e}")
 
     return pd.DataFrame(dataset)
+
+if __name__ == "__main__":
+    data_dir = sys.argv[1]
+    selected_fields = sys.argv[2]
+    df = load_trec_data(data_dir, selected_fields)
+    df.to_csv("trec_data.csv", index=False)
