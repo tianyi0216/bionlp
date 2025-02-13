@@ -1,6 +1,6 @@
 # bionlp
 
-Work on the Bio NLP Benchmark.
+Directory for code on the bio nlp dataset processing and deduplication. Go to each subdirectory for more information on the code.
 
 `clinical_trial/` - Clinical trial data processing.
 
@@ -9,6 +9,8 @@ Work on the Bio NLP Benchmark.
 `deduplication/Bio_Med_Research/` - Contains code specifically for deduplication of the Bio Med Research dataset.
 
 `deduplication/QA/` - Contains code specifically for deduplication of the QA datasets.
+
+The `archive/` directory contains archived code that is no longer used. The `data_loading/` directory were still in the process of developing and not used at this moment.
 
 
 
