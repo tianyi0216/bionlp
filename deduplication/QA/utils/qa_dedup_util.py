@@ -86,28 +86,16 @@ def load_dataset(path, filetype = "csv"):
             ds[f] = pd.DataFrame(data)
         return ds
 
-    
-## Deduplication Functions
-    
-# load the model that we use to calculate the text embeddings. 
-from medimageinsightmodel import MedImageInsight
 
-classifier = MedImageInsight(
-    model_dir="2024.09.27",
-    vision_model_name="medimageinsigt-v1.0.0.pt",
-    language_model_name="language_model.pth"
-)
 
-classifier.load_model()
-
-def get_embeddings(texts, batch_size = 64):
+def get_embeddings(texts, model, batch_size = 64):
     """
     Get the embeddings for the given texts. Use batch processing to speed up the process.
     """
     embeddings = []
     for i in tqdm(range(0, len(texts), batch_size), desc = "Generating embeddings"):
         batch_texts = texts[i:i+batch_size]
-        embeddings.extend(classifier.encode(texts = batch_texts)['text_embeddings'])
+        embeddings.extend(model.encode(texts = batch_texts)['text_embeddings'])
     return np.array(embeddings)
 
 def compute_similarity_chunked(embeddings, threshold=0.9, chunk_size=8000):
@@ -231,7 +219,7 @@ import os
 import numpy as np
 import pickle  # To save/load embeddings efficiently
 
-def calculate_and_save_embeddings(dataset, dataset_name, save_dir="embeddings_cache", batch_size=128):
+def calculate_and_save_embeddings(dataset, dataset_name, model, save_dir="embeddings_cache", batch_size=128):
     """
     Compute and save embeddings for a QA dataset.
 
@@ -265,7 +253,7 @@ def calculate_and_save_embeddings(dataset, dataset_name, save_dir="embeddings_ca
         question_embeddings = []
         for i in tqdm(range(0, len(questions), batch_size), desc="Question Embeddings"):
             batch_questions = questions[i:i + batch_size]
-            question_embeddings.extend(classifier.encode(texts=batch_questions)["text_embeddings"])
+            question_embeddings.extend(model.encode(texts=batch_questions)["text_embeddings"])
         question_embeddings = np.array(question_embeddings)
 
         # Save question embeddings
@@ -279,7 +267,7 @@ def calculate_and_save_embeddings(dataset, dataset_name, save_dir="embeddings_ca
         answer_embeddings = []
         for i in tqdm(range(0, len(answers), batch_size), desc="Answer Embeddings"):
             batch_answers = answers[i:i + batch_size]
-            answer_embeddings.extend(classifier.encode(texts=batch_answers)["text_embeddings"])
+            answer_embeddings.extend(model.encode(texts=batch_answers)["text_embeddings"])
         answer_embeddings = np.array(answer_embeddings)
 
         # Save answer embeddings
