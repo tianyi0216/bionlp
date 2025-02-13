@@ -12,5 +12,5 @@ Directory for code on the bio nlp dataset processing and deduplication. Go to ea
 
 The `archive/` directory contains archived code that is no longer used. The `data_loading/` directory were still in the process of developing and not used at this moment.
 
-
+The `data_information.csv` file contains information about each dataset, such as format, whether it is deduplicated, or if we have access to it right now. 
 
