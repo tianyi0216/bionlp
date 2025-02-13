@@ -1,3 +1,4 @@
+# Clinical Trial Data Download From ClinicalTrials.gov
 This folder contains code that processed the clinical trial data.
 
 `download_trial/` contains code that references the following package: https://github.com/jvfe/pytrials.
@@ -25,6 +26,8 @@ import pandas as pd
 
 pd.DataFrame.from_records(corona_fields[1:], columns=corona_fields[0])
 ```
+
+# Trec Data Processing
 
 The `parse_trec.py` file contains code that parses the xml formatted clinical trial from TREC clinical trial data. (https://www.trec-cds.org/2021.html)
 
