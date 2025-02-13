@@ -28,6 +28,39 @@ AVAILABLE_MODELS = [
     "MedImageInsight"
 ]
 
+def get_parser():
+    parser = argparse.ArgumentParser(description="Deduplicate biomedical datasets")
+    parser.add_argument(
+        "--datasets", 
+        nargs="+", 
+        choices=AVAILABLE_DATASETS + ["all"],
+        default=["all"],
+        help="Datasets to process"
+    )
+    parser.add_argument(
+        "--model", 
+        choices=list(AVAILABLE_MODELS.keys()),
+        default="medimageinsight",
+        help="Embedding model to use"
+    )
+    parser.add_argument(
+        "--data_dir",
+        default="dataset/bio_med_research",
+        help="Directory containing datasets"
+    )
+    parser.add_argument(
+        "--save_dir",
+        default="deduplicated_data",
+        help="Directory to save deduplicated data"
+    )
+    parser.add_argument(
+        "--embeddings_dir",
+        default="deduplicated_embeddings",
+        help="Directory to save embeddings"
+    )
+    
+    return parser
+
 def load_model(model_name: str) -> str:
     """Load the embedding model"""
     if model_name not in AVAILABLE_MODELS:
@@ -67,7 +100,6 @@ def process_dataset(
     
     # Within dataset deduplication
     deduplicated_data, num_removed = deduplicate_within_dataset(ds, columns)
-    logger.info(f"Removed {num_removed} duplicates within {dataset_name}")
     
     # Between dataset deduplication if we have existing embeddings
     if existing_embeddings:
@@ -76,7 +108,6 @@ def process_dataset(
             columns, 
             existing_embeddings
         )
-        logger.info(f"Removed {num_removed} duplicates between {dataset_name} and existing datasets")
     
     # Save deduplicated data
     save_path = os.path.join(save_dir, f"{dataset_name}_deduplicated.csv")
@@ -92,40 +123,11 @@ def process_dataset(
     return deduplicated_data, embeddings
 
 def main():
-    parser = argparse.ArgumentParser(description="Deduplicate biomedical datasets")
-    parser.add_argument(
-        "--datasets", 
-        nargs="+", 
-        choices=AVAILABLE_DATASETS + ["all"],
-        default=["all"],
-        help="Datasets to process"
-    )
-    parser.add_argument(
-        "--model", 
-        choices=list(AVAILABLE_MODELS.keys()),
-        default="medimageinsight",
-        help="Embedding model to use"
-    )
-    parser.add_argument(
-        "--data_dir",
-        default="dataset/bio_med_research",
-        help="Directory containing datasets"
-    )
-    parser.add_argument(
-        "--save_dir",
-        default="deduplicated_data",
-        help="Directory to save deduplicated data"
-    )
-    parser.add_argument(
-        "--embeddings_dir",
-        default="deduplicated_embeddings",
-        help="Directory to save embeddings"
-    )
-    
+    parser = get_parser()
     args = parser.parse_args()
     
     # Download/verify model
-    model_dir = download_model(args.model)
+    model = load_model(args.model)
     
     # Create save directory
     os.makedirs(args.save_dir, exist_ok=True)
@@ -145,7 +147,7 @@ def main():
             )
             existing_embeddings.append(embeddings)
         except Exception as e:
-            logger.error(f"Error processing {dataset}: {str(e)}")
+            print(f"Error processing {dataset}: {str(e)}")
             continue
 
 if __name__ == "__main__":
