@@ -5,55 +5,49 @@ import torch
 from tqdm import tqdm
 import pickle
 from typing import List, Dict, Tuple, Optional
-import logging
-from huggingface_hub import hf_hub_download
-
-from Bio_Med_Research.utils.biomed_dedup_util import (
+from QA.utils.qa_dedup_util import (
     load_dataset, 
     get_embeddings,
     deduplicate_within_dataset,
     deduplicate_between_datasets
 )
+from subprocess import check_output
 
-# Setup logging
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
-
+# all the available datasets, can be changed or updated. But the one here are tested for preprocessingand working.
 AVAILABLE_DATASETS = [
-    "bc5cdr",
-    "bionli",
-    "cord19",
-    "hoc",
-    "sourcedata",
-    "trec_covid",
-    "pubmed"
+    "LiveQA",
+    "MedicationQA",
+    "MedMCQA",
+    "MedQA-USMLE",
+    "MedQuAD",
+    "PubMedQA"
 ]
 
-AVAILABLE_MODELS = {
-    "medimageinsight": {
-        "repo": "lion-ai/MedImageInsights",
-        "files": ["medimageinsigt-v1.0.0.pt", "language_model.pth"]
-    }
-}
+# all the available models, maybe can expand later.
+AVAILABLE_MODELS = [
+    "MedImageInsight"
+]
 
-def download_model(model_name: str, save_dir: str = "models") -> str:
-    """Download model files from HuggingFace if not present"""
+def load_model(model_name: str) -> str:
+    """Load the embedding model"""
     if model_name not in AVAILABLE_MODELS:
-        raise ValueError(f"Model {model_name} not supported. Available models: {list(AVAILABLE_MODELS.keys())}")
+        raise ValueError(f"Model {model_name} not supported. Available models: {list(AVAILABLE_MODELS)}")
     
-    os.makedirs(save_dir, exist_ok=True)
-    model_info = AVAILABLE_MODELS[model_name]
+    # maybe add other models here later. Or we provide download links for the models.
+    if model_name == "MedImageInsight":
+        from MedImageInsights.medimageinsightmodel import MedImageInsight
+        if "MedImageInsight" not in os.listdir(""):
+            check_output(["git", "clone", "https://huggingface.co/lion-ai/MedImageInsights"])
+
+        model = MedImageInsight(
+            model_dir="2024.09.27",
+            vision_model_name="medimageinsigt-v1.0.0.pt",
+            language_model_name="language_model.pth"
+        )
+        model.load_model()
+        return model
+
     
-    for file in model_info["files"]:
-        if not os.path.exists(os.path.join(save_dir, file)):
-            logger.info(f"Downloading {file}...")
-            hf_hub_download(
-                repo_id=model_info["repo"],
-                filename=file,
-                local_dir=save_dir
-            )
-    
-    return save_dir
 
 def process_dataset(
     dataset_name: str,
@@ -62,7 +56,6 @@ def process_dataset(
     existing_embeddings: Optional[List] = None
 ) -> Tuple[pd.DataFrame, List]:
     """Process a single dataset through deduplication pipeline"""
-    logger.info(f"Processing {dataset_name}...")
     
     # Load dataset
     ds = load_dataset(os.path.join(data_dir, dataset_name))
