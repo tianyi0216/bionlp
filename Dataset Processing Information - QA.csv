@@ -1,0 +1,7 @@
+Source Dataset,Total Number of Data,Number of Data Included,Number Deduplicated
+LiveQA,602,488,114
+MedicationQA,690,587,103
+MedMCQA,193155,152219,40936
+MedQA-USMLE,52538,35088,17450
+MedQuAD,47441,15958,31483
+PubMedQA,273518,272377,1141
