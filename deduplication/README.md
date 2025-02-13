@@ -1,4 +1,4 @@
-## Deduplication and Preprocessing for Bio Medical Research Data and QA Data
+# Deduplication and Preprocessing for Bio Medical Research Data and QA Data
 
 We have the deduplication and preprocessing code for the bio medical research data and also QA data here.
 
@@ -33,19 +33,27 @@ This process removes duplicates within a single dataset:
 
 4. Remove Duplicates and Post-Processing:
    - Removes duplicates based on the indices from the similarity computation (step 3).
-   - Saves the deduplicated data to a new csv file to the set of deduplicated data.
-   - Also saves the embeddings to a pickle file for future use.
 
 ## 2. Cross-Dataset Deduplication
 
-This process removes duplicates between a new dataset and existing datasets:
+After self deduplication, we can use the same algorithm to deduplicate between a new dataset and the existing datasets.
 
-1. Embedding Preparation:
-   - Generates embeddings for the new dataset
-   - Combines pre-computed embeddings from existing datasets
+1. Data Preparation:
+   - Loads the embeddings from all the saved pickle files.
+   - Combines the embeddings into a single numpy array.
+   - Also loads the already self-deduplicated data from the csv file.
+   - Similarly, for QA data, we do it separately for the question and the answer columns, for bio medical research data, we combine the selected columns into a single text string.
 
 2. Chunked Similarity Computation:
    - Processes data in manageable chunks to optimize memory usage
    - Compares each chunk from the new dataset against all existing dataset embeddings
    - Identifies entries in the new dataset that are similar to any existing entry
 
+3. Remove Duplicates and Post-Processing:
+   - Removes duplicates based on the indices from the similarity computation (step 2).
+   - Saves the deduplicated data to a new csv file to the set of deduplicated data.
+   - Also saves the embeddings to a pickle file for future use.
+
+# Usage
+
+To be updated.
