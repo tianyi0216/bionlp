@@ -56,7 +56,27 @@ After self deduplication, we can use the same algorithm to deduplicate between a
 
 # Usage
 
-To be updated.
+To deduplicate QA data, do the following:
+
+```bash
+cd QA
+python deduplicate_qa.py --datasets all --model MedImageInsight --threshold 0.9
+```
+
+There are other arguments as well, check the `deduplicate_qa.py` file for more details.
+
+To deduplicate bio medical research data, do the following:
+
+```bash
+cd Bio_Med_Research
+python deduplicate_biomed.py --datasets all --model MedImageInsight --threshold 0.9
+```
+
+Check the `deduplicate_biomed.py` file for more details on arguments, and implementation details.
+
+You can customize the `col.csv` file to add more datasets and columns.
+
+## Other Utilities
 
 To count the number of data in the dataset, run the `count_data_num.py` file.  Currently it is for QA data only.
 
