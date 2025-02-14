@@ -68,6 +68,8 @@ We have the `Dataset Processing Information - QA.csv` file to record the number 
 
 To merge the datasets, run `merge_qa_data.py` file in the `QA/utils/` directory. This assumes all the deduplicated datas are csv format.
 
+Currently, the merge qa data creates a new csv file with all the data and have the question and answer columns. It put other columns in a new column called `metadata`.
+
 ```bash
 python merge_qa_data.py
 ```
