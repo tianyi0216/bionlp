@@ -10,17 +10,7 @@ import json
 from tqdm import tqdm
 import pickle
 
-# load the model that we use to calculate the text embeddings. 
-from medimageinsightmodel import MedImageInsight
-
-classifier = MedImageInsight(
-    model_dir="2024.09.27",
-    vision_model_name="medimageinsigt-v1.0.0.pt",
-    language_model_name="language_model.pth"
-)
-
 # Dataset Loading
-# loading dataset
 def parse_xml(file):
     """
     Parse the xml file into a pandas dataframe.
@@ -93,11 +83,11 @@ def load_dataset(path, filetype = "csv"):
         return ds
 
 # deduplicate the dataset
-def get_embeddings(texts, batch_size = 64):
+def get_embeddings(texts, model, batch_size = 64):
     embeddings = []
     for i in tqdm(range(0, len(texts), batch_size), desc = "Generating embeddings"):
         batch_texts = texts[i:i+batch_size]
-        embeddings.extend(classifier.encode(texts = batch_texts)['text_embeddings'])
+        embeddings.extend(model.encode(texts = batch_texts)['text_embeddings'])
     return np.array(embeddings)
 
 def compute_similarity_chunked(embeddings, threshold=0.9, chunk_size=8000):
@@ -154,20 +144,78 @@ def compute_similarity_between_datasets_chunked(embeddings1, embeddings2, thresh
 
     return to_remove
 
-def deduplicate_within_dataset(dataset, columns,threshold=0.9):
+def deduplicate_within_dataset(dataset, columns, model, threshold=0.9):
     # joins the columns in the dataset
     texts = list(dataset[columns].apply(lambda x: " ".join(x.values.astype(str)), axis=1))
-    embeddings = get_embeddings(texts)
+    embeddings = get_embeddings(texts, model)
     to_remove = compute_similarity_chunked(embeddings, threshold=threshold)
     number_removed = len(to_remove)
     return dataset.drop(to_remove), number_removed
 
-def deduplicate_between_datasets(new_dataset, columns, old_embeddings, threshold=0.9):
+def deduplicate_between_datasets(new_dataset, columns, model, old_embeddings, threshold=0.9):
     texts1 = list(new_dataset[columns].apply(lambda x: " ".join(x.values.astype(str)), axis=1))
-    embeddings1 = get_embeddings(texts1)
+    embeddings1 = get_embeddings(texts1, model)
     old_embeddings_list = []
     for embed in old_embeddings:
         old_embeddings_list.extend(embed)
     to_remove = compute_similarity_between_datasets_chunked(embeddings1, old_embeddings_list, threshold=threshold)
     number_removed = len(to_remove)
     return new_dataset.drop(to_remove), number_removed
+
+def calculate_and_save_embeddings(dataset, dataset_name, model, save_dir="embeddings_cache", batch_size=128):
+    """
+    Compute and save embeddings for a QA dataset.
+
+    Args:
+        dataset (pd.DataFrame): Dataset containing "question" and "answer" columns.
+        dataset_name (str): Name of the dataset for unique file identification.
+        save_dir (str): Directory where embeddings will be saved.
+        batch_size (int): Batch size for generating embeddings.
+
+    Returns:
+        dict: A dictionary containing question and answer embeddings.
+    """
+    # Ensure save directory exists
+    if not os.path.exists(save_dir):
+        os.makedirs(save_dir)
+    # File paths for embeddings
+    question_embedding_file = os.path.join(save_dir, f"{dataset_name}_question_embeddings.pkl")
+    answer_embedding_file = os.path.join(save_dir, f"{dataset_name}_answer_embeddings.pkl")
+
+    # Check if embeddings already exist
+    if os.path.exists(question_embedding_file) and os.path.exists(answer_embedding_file):
+        print(f"Loading cached embeddings for {dataset_name}...")
+        with open(question_embedding_file, "rb") as qf:
+            question_embeddings = pickle.load(qf)
+        with open(answer_embedding_file, "rb") as af:
+            answer_embeddings = pickle.load(af)
+    else:
+        # Compute embeddings for questions
+        print(f"Generating question embeddings for {dataset_name}...")
+        questions = dataset["question"].tolist()
+        question_embeddings = []
+        for i in tqdm(range(0, len(questions), batch_size), desc="Question Embeddings"):
+            batch_questions = questions[i:i + batch_size]
+            question_embeddings.extend(model.encode(texts=batch_questions)["text_embeddings"])
+        question_embeddings = np.array(question_embeddings)
+
+        # Save question embeddings
+        with open(question_embedding_file, "wb") as qf:
+            pickle.dump(question_embeddings, qf)
+        print(f"Saved question embeddings for {dataset_name}.")
+
+        # Compute embeddings for answers
+        print(f"Generating answer embeddings for {dataset_name}...")
+        answers = dataset["answer"].tolist()
+        answer_embeddings = []
+        for i in tqdm(range(0, len(answers), batch_size), desc="Answer Embeddings"):
+            batch_answers = answers[i:i + batch_size]
+            answer_embeddings.extend(model.encode(texts=batch_answers)["text_embeddings"])
+        answer_embeddings = np.array(answer_embeddings)
+
+        # Save answer embeddings
+        with open(answer_embedding_file, "wb") as af:
+            pickle.dump(answer_embeddings, af)
+        print(f"Saved answer embeddings for {dataset_name}.")
+
+    return {"questions": question_embeddings, "answers": answer_embeddings}
