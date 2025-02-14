@@ -155,40 +155,30 @@ def compute_similarity_between_datasets_chunked(embeddings1, embeddings2, thresh
 
     return to_remove
 
-def deduplication_within_dataset_qa(dataset, threshold = 0.9):
+def deduplication_within_dataset_qa(dataset, model, threshold = 0.9):
     """
     Given the dataset, deduplicate the dataset within itself.
     """
     questions = dataset["question"].tolist()
     #answers = dataset["answer"].tolist()
 
-    question_embeddings = get_embeddings(questions)
+    question_embeddings = get_embeddings(questions, model)
     to_remove_questions = compute_similarity_chunked(question_embeddings, threshold)
 
     new_dataset = dataset.drop(index = list(to_remove_questions)).reset_index(drop=True)
 
     answers = new_dataset["answer"].tolist()
-    answer_embeddings = get_embeddings(answers)
+    answer_embeddings = get_embeddings(answers, model)
     to_remove_answers = compute_similarity_chunked(answer_embeddings, threshold)
 
     new_dataset = new_dataset.drop(index = list(to_remove_answers)).reset_index(drop=True)
     return new_dataset, list(to_remove_questions), list(to_remove_answers)
 
-def deduplicate_across_datasets_qa(new_dataset, old_question_embeddings_saved, old_answer_embeddings_saved, threshold = 0.9):
+def deduplicate_across_datasets_qa(new_dataset, old_question_embeddings_saved, old_answer_embeddings_saved, model, threshold = 0.9):
     """
     Given the new dataset and the old datasets, deduplicate the new dataset across the old datasets.
     """
-    # Combine all old dataset questions and answers
-    # all_old_questions = []
-    # all_old_answers = []
-
-    # for dataset in old_datasets:
-    #     all_old_questions.extend(dataset["question"].tolist())
-    #     all_old_answers.extend(dataset["answer"].tolist())
-
-    # Generate embeddings for old dataset questions and answers
-    # old_question_embeddings = get_embeddings(all_old_questions)
-    # old_answer_embeddings = get_embeddings(all_old_answers)
+   
     old_question_embeddings = []
     old_answer_embeddings = []
     for old_embed in old_question_embeddings_saved:
@@ -197,14 +187,14 @@ def deduplicate_across_datasets_qa(new_dataset, old_question_embeddings_saved, o
         old_answer_embeddings.extend(old_embed)
 
     # Generate embeddings for new dataset questions and answers
-    new_question_embeddings = get_embeddings(new_dataset["question"].tolist())
-    new_answer_embeddings = get_embeddings(new_dataset["answer"].tolist())
+    new_question_embeddings = get_embeddings(new_dataset["question"].tolist(), model)
+    new_answer_embeddings = get_embeddings(new_dataset["answer"].tolist(), model)
 
     # Deduplicate new questions
-    to_remove_questions = compute_similarity_between_datasets_chunked(new_question_embeddings, old_question_embeddings)
+    to_remove_questions = compute_similarity_between_datasets_chunked(new_question_embeddings, old_question_embeddings, threshold)
 
     # Deduplicate new answers
-    to_remove_answers = compute_similarity_between_datasets_chunked(new_answer_embeddings, old_answer_embeddings)
+    to_remove_answers = compute_similarity_between_datasets_chunked(new_answer_embeddings, old_answer_embeddings, threshold)
 
     # Combine removal indices
     to_remove = to_remove_questions.union(to_remove_answers)
@@ -233,8 +223,8 @@ def calculate_and_save_embeddings(dataset, dataset_name, model, save_dir="embedd
         dict: A dictionary containing question and answer embeddings.
     """
     # Ensure save directory exists
-    os.makedirs(save_dir, exist_ok=True)
-
+    if not os.path.exists(save_dir):
+        os.makedirs(save_dir)
     # File paths for embeddings
     question_embedding_file = os.path.join(save_dir, f"{dataset_name}_question_embeddings.pkl")
     answer_embedding_file = os.path.join(save_dir, f"{dataset_name}_answer_embeddings.pkl")
