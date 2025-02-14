@@ -2,13 +2,13 @@
 
 Directory for code on the bio nlp dataset processing and deduplication. Go to each subdirectory for more information on the code.
 
-`clinical_trial/` - Clinical trial data processing.
+[`clinical_trial/`](clinical_trial/) - Clinical trial data processing.
 
-`deduplication/` - Contains code for general deduplication of biomedical research literature and QA datasets.
+[`deduplication/`](deduplication/) - Contains code for general deduplication of biomedical research literature and QA datasets.
 
-`deduplication/Bio_Med_Research/` - Contains code specifically for deduplication of the Bio Med Research dataset.
+[`deduplication/Bio_Med_Research/`](deduplication/Bio_Med_Research/) - Contains code specifically for deduplication of the Bio Med Research dataset.
 
-`deduplication/QA/` - Contains code specifically for deduplication of the QA datasets.
+[`deduplication/QA/`](deduplication/QA/) - Contains code specifically for deduplication of the QA datasets.
 
 The `archive/` directory contains archived code that is no longer used. The `data_loading/` directory were still in the process of developing and not used at this moment.
 
