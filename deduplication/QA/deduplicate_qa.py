@@ -40,7 +40,7 @@ def get_parser():
     )
     parser.add_argument(
         "--model", 
-        choices=list(AVAILABLE_MODELS.keys()),
+        choices=AVAILABLE_MODELS,
         default="MedImageInsight",
         help="Embedding model to use"
     )
