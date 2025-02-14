@@ -4,12 +4,13 @@ import pandas as pd
 import torch
 from tqdm import tqdm
 import pickle
-from typing import List, Dict, Tuple, Optional
+
 from QA.utils.qa_dedup_util import (
     load_dataset, 
     get_embeddings,
-    deduplicate_within_dataset,
-    deduplicate_between_datasets
+    deduplication_within_dataset_qa,
+    deduplicate_across_datasets_qa,
+    calculate_and_save_embeddings
 )
 from subprocess import check_output
 
@@ -40,12 +41,12 @@ def get_parser():
     parser.add_argument(
         "--model", 
         choices=list(AVAILABLE_MODELS.keys()),
-        default="medimageinsight",
+        default="MedImageInsight",
         help="Embedding model to use"
     )
     parser.add_argument(
         "--data_dir",
-        default="dataset/bio_med_research",
+        default="dataset/qa",
         help="Directory containing datasets"
     )
     parser.add_argument(
@@ -58,10 +59,16 @@ def get_parser():
         default="deduplicated_embeddings",
         help="Directory to save embeddings"
     )
+    parser.add_argument(
+        "--threshold",
+        type=float,
+        default=0.9,
+        help="Threshold for deduplication"
+    )
     
     return parser
 
-def load_model(model_name: str) -> str:
+def load_model(model_name):
     """Load the embedding model"""
     if model_name not in AVAILABLE_MODELS:
         raise ValueError(f"Model {model_name} not supported. Available models: {list(AVAILABLE_MODELS)}")
@@ -82,45 +89,41 @@ def load_model(model_name: str) -> str:
 
     
 
-def process_dataset(
-    dataset_name: str,
-    data_dir: str,
-    save_dir: str,
-    existing_embeddings: Optional[List] = None
-) -> Tuple[pd.DataFrame, List]:
+def process_dataset(dataset_name, data_dir, save_dir, embeddings_dir, model, threshold):
     """Process a single dataset through deduplication pipeline"""
     
-    # Load dataset
-    ds = load_dataset(os.path.join(data_dir, dataset_name))
+    try:
+        # Load dataset
+        ds = load_dataset(os.path.join(data_dir, dataset_name))
+        
+        # Within dataset deduplication
+        deduplicated_data, _ = deduplication_within_dataset_qa(ds, model, threshold)
+        
+        # load old_embeddings
+        old_answer_embeddings = []
+        old_question_embeddings = []
+        for file in os.listdir(embeddings_dir):
+            if file.endswith(".pkl"):
+                if "answer" in file:
+                    old_answer_embeddings.append(pickle.load(open(os.path.join(embeddings_dir, file), "rb")))
+                else:
+                    old_question_embeddings.append(pickle.load(open(os.path.join(embeddings_dir, file), "rb")))
+        
+        # Between dataset deduplication
+        deduplicated_data, _ = deduplicate_across_datasets_qa(deduplicated_data, old_question_embeddings, old_answer_embeddings, model, threshold)
+        
+        # Save deduplicated data
+        save_path = os.path.join(save_dir, f"{dataset_name}_deduplicated.csv")
+        deduplicated_data.to_csv(save_path, index=False)
+
+        # save embeddings
+        calculate_and_save_embeddings(deduplicated_data, dataset_name, model, embeddings_dir)
+        return True
+    except Exception as e:
+        print(f"Error processing {dataset_name}: {str(e)}")
+        return False
     
-    # Get columns for deduplication from configuration
-    with open("column_config.csv", "r") as f:
-        col_info = pd.read_csv(f)
-    columns = col_info.loc[col_info["dataset_name"] == dataset_name, "column_name"].tolist()[0].split(", ")
     
-    # Within dataset deduplication
-    deduplicated_data, num_removed = deduplicate_within_dataset(ds, columns)
-    
-    # Between dataset deduplication if we have existing embeddings
-    if existing_embeddings:
-        deduplicated_data, num_removed = deduplicate_between_datasets(
-            deduplicated_data, 
-            columns, 
-            existing_embeddings
-        )
-    
-    # Save deduplicated data
-    save_path = os.path.join(save_dir, f"{dataset_name}_deduplicated.csv")
-    deduplicated_data.to_csv(save_path, index=False)
-    
-    # Get and save embeddings
-    texts = list(deduplicated_data[columns].apply(lambda x: " ".join(x.values.astype(str)), axis=1))
-    embeddings = get_embeddings(texts)
-    
-    with open(os.path.join(save_dir, f"{dataset_name}_embeddings.pkl"), "wb") as f:
-        pickle.dump(embeddings, f)
-    
-    return deduplicated_data, embeddings
 
 def main():
     parser = get_parser()
@@ -130,22 +133,28 @@ def main():
     model = load_model(args.model)
     
     # Create save directory
-    os.makedirs(args.save_dir, exist_ok=True)
+    if not os.path.exists(args.save_dir):
+        os.makedirs(args.save_dir, exist_ok=True)
+    if not os.path.exists(args.embeddings_dir):
+        os.makedirs(args.embeddings_dir, exist_ok=True)
     
     # Determine datasets to process
     datasets_to_process = AVAILABLE_DATASETS if "all" in args.datasets else args.datasets
     
-    # Process datasets sequentially
-    existing_embeddings = []
     for dataset in datasets_to_process:
         try:
-            _, embeddings = process_dataset(
+            success = process_dataset(
                 dataset,
                 args.data_dir,
                 args.save_dir,
-                existing_embeddings
+                args.embeddings_dir,
+                model,
+                args.threshold
             )
-            existing_embeddings.append(embeddings)
+            if success:
+                print(f"Successfully processed {dataset}")
+            else:
+                print(f"Failed to process {dataset}")
         except Exception as e:
             print(f"Error processing {dataset}: {str(e)}")
             continue
