@@ -1,8 +1,9 @@
 # Usage with PyTrial
-from relevant_code.trec_util import load_trec_data
+from trec_util import load_trec_data
 from pytrial.data.trial_data import TrialDatasetBase
 import pandas as pd
 import os
+
 def trec_to_pytrial_format(data_dir, output_dir='./datasets/TREC-ClinicalTrial'):
     """Convert TREC XML data to PyTrial compatible format"""
     
