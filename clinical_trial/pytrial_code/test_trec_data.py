@@ -4,6 +4,8 @@ import numpy as np
 from pytrial.data.trial_data import TrialDatasetBase
 from pytrial.utils.trial_utils import ClinicalTrials
 from trec_util import load_trec_data, parse_xml_file
+
+# test for specific tasks
 from pytrial.tasks.trial_outcome.model_utils import data_structure
 from pytrial.tasks.trial_outcome.model_utils import dataloader
 
@@ -58,3 +60,9 @@ def test_trec_to_pytrial_pipeline():
     """Test TREC using some pytrial codes"""
     # 1. testing the loading of trec data
     df_default = test_loading_trec_data()
+
+
+if __name__ == "__main__":
+    test_trec_to_pytrial_pipeline()
+    
+   
