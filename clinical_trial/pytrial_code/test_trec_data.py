@@ -7,7 +7,7 @@ import numpy as np
 from pytrial.data.trial_data import TrialDatasetBase, TrialDataCollator, TrialDataset
 from pytrial.data.trial_data import TrialOutcomeDatasetBase
 from pytrial.utils.trial_utils import ClinicalTrials
-from trec_util import load_trec_data, parse_xml_file
+from trec_util import load_trec_data, parse_xml_file, format_criteria_for_pytrial
 from torch.utils.data import DataLoader
 
 # test for specific tasks
@@ -82,6 +82,9 @@ def test_pytrial_data_structures(df_pytrial):
         for i, row in enumerate(df_pytrial.itertuples()):
             if row.criteria is None:
                 df_pytrial.at[i, 'criteria'] = 'No inclusion or exclusion criteria'
+
+        # format the criteria for pytrial
+        df_pytrial['criteria'] = df_pytrial['criteria'].apply(format_criteria_for_pytrial)
         trial_dataset_base = TrialDatasetBase(df_pytrial)
         print(f"Successfully created TrialDatasetBase with {len(trial_dataset_base)} trials")
         
@@ -355,7 +358,8 @@ if __name__ == "__main__":
     print(f"For PyTrial data structures, {result_dict['pytrial_data_structures']} out of 3 tests passed")
     print(f"For TrialDataset, {result_dict['trial_dataset']} out of 1 tests passed")
     print("Checking data structures...")
-    dataset = trial_dataset['TrialDataset']
+    dataset = data_structures['TrialDatasetBase']
+    dataset.df.to_csv("trec_data_pytrial_partial.csv", index=False)
     collate_fn = TrialDataCollator()
     trialoader = DataLoader(dataset, batch_size=10, shuffle=False, collate_fn=collate_fn)
     batch = next(iter(trialoader))
