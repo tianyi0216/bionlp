@@ -4,7 +4,7 @@ import sys
 sys.path.append(os.getcwd())
 import pandas as pd
 import numpy as np
-from pytrial.data.trial_data import TrialDatasetBase, TrialDataCollator
+from pytrial.data.trial_data import TrialDatasetBase, TrialDataCollator, TrialDataset
 from pytrial.data.trial_data import TrialOutcomeDatasetBase
 from pytrial.utils.trial_utils import ClinicalTrials
 from trec_util import load_trec_data, parse_xml_file
@@ -183,6 +183,29 @@ def test_pytrial_data_structures(df_pytrial):
         traceback.print_exc()
         return None
     
+def test_trial_dataset():
+    """Test the TrialDataset utility functions"""
+    print("\n=== Testing TrialDataset ===")
+    num_passed = 0
+
+    try:
+        # 1. Test initialization
+        print("\n1. Testing initialization...")
+        dataset = TrialDataset(input_dir="trec_data.csv")
+        print(f"Successfully initialized TrialDataset with {len(dataset)} trials")
+        num_passed += 1
+    except Exception as e:
+        print(f"Failed to initialize TrialDataset: {str(e)}")
+        
+    return {
+        'TrialDataset': dataset,
+        'status': 'success',
+        'passed': num_passed,
+        'total': 1
+    }, num_passed
+    
+    
+    
 def test_clinical_trials_utils():
     """Test the ClinicalTrials utility functions"""
     # test the load_data function
@@ -314,7 +337,11 @@ def test_trec_to_pytrial_pipeline():
         data_structures, num_passed_data_structures = test_pytrial_data_structures(df_pytrial)
         result_dict["pytrial_data_structures"] = num_passed_data_structures
 
-        return df_pytrial, data_structures, result_dict
+        # 4. Test TrialDataset
+        trial_dataset, num_passed_trial_dataset = test_trial_dataset()
+        result_dict["trial_dataset"] = num_passed_trial_dataset
+
+        return df_pytrial, data_structures, trial_dataset, result_dict
 
     except Exception as e:
         print(f"Error in converting to PyTrial format: {str(e)}")
@@ -323,15 +350,17 @@ def test_trec_to_pytrial_pipeline():
         return None
     
 if __name__ == "__main__":
-    df_pytrial, data_structures, result_dict = test_trec_to_pytrial_pipeline()
+    df_pytrial, data_structures, trial_dataset, result_dict = test_trec_to_pytrial_pipeline()
     print(f"For loading trec data, {result_dict['loading_trec_data']} out of 4 tests passed")
     print(f"For PyTrial data structures, {result_dict['pytrial_data_structures']} out of 3 tests passed")
+    print(f"For TrialDataset, {result_dict['trial_dataset']} out of 1 tests passed")
     print("Checking data structures...")
-    dataset = data_structures['TrialDatasetBase']
+    dataset = trial_dataset['TrialDataset']
     collate_fn = TrialDataCollator()
     trialoader = DataLoader(dataset, batch_size=10, shuffle=False, collate_fn=collate_fn)
     batch = next(iter(trialoader))
     print("Checking one batch of data...")
     print(batch)
+    print(type(batch))
     
-    
+   
