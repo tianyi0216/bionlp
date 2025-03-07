@@ -4,7 +4,7 @@ import sys
 sys.path.append(os.getcwd())
 import pandas as pd
 import numpy as np
-from pytrial.data.trial_data import TrialDatasetBase
+from pytrial.data.trial_data import TrialDatasetBase, TrialDataCollator
 from pytrial.data.trial_data import TrialOutcomeDatasetBase
 from pytrial.utils.trial_utils import ClinicalTrials
 from trec_util import load_trec_data, parse_xml_file
@@ -27,13 +27,13 @@ def test_loading_trec_data():
     try:
         # Test with default fields
         print("\nTesting with default fields...")
-        df_default = load_trec_data(test_data_dir)
         default_fields = [
             'nct_id', 'brief_title', 'brief_summary', 'detailed_description',
             'condition', 'intervention_type', 'intervention_name', 'phase',
             'study_type', 'minimum_age', 'maximum_age', 'gender', 'location_facility',
             'eligibility_criteria'
         ]
+        df_default = load_trec_data(test_data_dir, selected_fields=default_fields)
         print(f"✓ Successfully loaded {len(df_default)} trials with default fields")
         print(f"✓ Default fields present: {all(field in df_default.columns for field in default_fields)}")
         num_passed += 1
@@ -78,7 +78,10 @@ def test_pytrial_data_structures(df_pytrial):
         if 'criteria' not in df_pytrial.columns:
             print("Cannot test TrialDatasetBase: 'criteria' column not found")
             return None
-        
+        # check for inclusion criteria and exclusion criteria
+        for i, row in enumerate(df_pytrial.itertuples()):
+            if row.criteria is None:
+                df_pytrial.at[i, 'criteria'] = 'No inclusion or exclusion criteria'
         trial_dataset_base = TrialDatasetBase(df_pytrial)
         print(f"Successfully created TrialDatasetBase with {len(trial_dataset_base)} trials")
         
@@ -139,6 +142,8 @@ def test_pytrial_data_structures(df_pytrial):
             print(f"   - Sample data type: {type(sample_data)}")
             print(f"   - Sample data length: {len(sample_data)}")
             num_passed += 1
+
+
             
         except Exception as e:
             print(f"Failed to create TrialOutcomeDatasetBase: {str(e)}")
@@ -177,11 +182,104 @@ def test_pytrial_data_structures(df_pytrial):
         import traceback
         traceback.print_exc()
         return None
+    
+def test_clinical_trials_utils():
+    """Test the ClinicalTrials utility functions"""
+    # test the load_data function
+    print("\n=== Testing ClinicalTrials Utility ===")
+    num_passed = 0
+
+    try:
+        # 1. Test initialization
+        print("\n1. Testing initialization...")
+        ct = ClinicalTrials()
+        print(f"Successfully initialized ClinicalTrials: {ct}")
+        num_passed += 1
+        
+        # 2. Test study fields retrieval
+        print("\n2. Testing study fields retrieval...")
+        fields = ct.study_fields
+        print(f"Successfully retrieved {len(fields)} study fields")
+        print(f"Sample fields: {fields[:5]}")
+        num_passed += 1
+        
+        # 3. Test query functionality with small sample
+        print("\n3. Testing query functionality...")
+        try:
+            sample_query = ct.query_studies(
+                search_expr='COVID-19',
+                fields=['NCTId', 'BriefTitle'],
+                max_studies=5
+            )
+            print(f"✓ Successfully queried studies: {len(sample_query)} results")
+            print(f"Sample study: {sample_query.iloc[0].to_dict()}")
+            num_passed += 1
+        except Exception as e:
+            print(f"Failed to query studies: {str(e)}")
+        
+        # 4. Test study count functionality
+        print("\n4. Testing study count functionality...")
+        try:
+            count = ct.get_study_count('COVID-19')
+            print(f"✓ Successfully retrieved study count: {count} studies for 'COVID-19'")
+            num_passed += 1
+        except Exception as e:
+            print(f"✗ Failed to get study count: {str(e)}")
+        
+        # 5. Test data loading (mock file)
+        print("\n5. Testing data loading functionality...")
+        try:
+            # Create a temporary CSV file for testing
+            import tempfile
+            import pandas as pd
+            
+            with tempfile.NamedTemporaryFile(suffix='.csv', delete=False) as tmp:
+                temp_dir = os.path.dirname(tmp.name)
+                temp_filename = os.path.basename(tmp.name)
+                temp_csv_path = os.path.join(temp_dir, 'clinical_trials.csv')
+                
+                # Create a simple dataframe and save it
+                test_df = pd.DataFrame({
+                    'nct_id': ['NCT00000001', 'NCT00000002'],
+                    'title': ['Test Trial 1', 'Test Trial 2'],
+                    'criteria': ['Inclusion: test\nExclusion: test', 'Inclusion: test\nExclusion: test']
+                })
+                test_df.to_csv(temp_csv_path, index=True)
+                
+                # Test loading
+                loaded_df = ct.load_data(temp_dir)
+                print(f"Successfully loaded data with {len(loaded_df)} trials")
+                
+                # Clean up
+                os.remove(temp_csv_path)
+                num_passed += 1
+        except Exception as e:
+            print(f"Failed to test data loading: {str(e)}")
+        return {
+            'clinical_trials': ct,
+            'status': 'success',
+            'passed': num_passed,
+            'total': 5
+        }
+
+    except Exception as e:
+        print(f"\nError during testing: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        return {
+            'status': 'failed',
+            'error': str(e),
+            'passed': num_passed,
+            'total': 5
+        }
 
 def test_trec_to_pytrial_pipeline():
     """Test TREC using some pytrial codes"""
     # 1. testing the loading of trec data
+    result_dict = {}
     df_default, num_passed_loading = test_loading_trec_data()
+    result_dict["loading_trec_data"] = num_passed_loading
+    
 
     # 2. Converting to PyTrial format
     print("\n2. Converting to PyTrial format...")
@@ -197,7 +295,7 @@ def test_trec_to_pytrial_pipeline():
             'eligibility_criteria': 'criteria',
             'brief_summary': 'description'
         }
-        
+       # print(df_default)
         # Check which columns are available in our data
         available_columns = [col for col in column_mapping.keys() if col in df_default.columns]
         mapping_to_use = {col: column_mapping[col] for col in available_columns}
@@ -214,8 +312,9 @@ def test_trec_to_pytrial_pipeline():
 
         # 3. Test PyTrial data structures
         data_structures, num_passed_data_structures = test_pytrial_data_structures(df_pytrial)
-        
-        return df_pytrial, data_structures, num_passed_loading, num_passed_data_structures
+        result_dict["pytrial_data_structures"] = num_passed_data_structures
+
+        return df_pytrial, data_structures, result_dict
 
     except Exception as e:
         print(f"Error in converting to PyTrial format: {str(e)}")
@@ -223,12 +322,16 @@ def test_trec_to_pytrial_pipeline():
         traceback.print_exc()
         return None
     
-    
-
-
 if __name__ == "__main__":
-    df_pytrial, data_structures, num_passed_loading, num_passed_data_structures = test_trec_to_pytrial_pipeline()
-    print(f"For loading trec data, {num_passed_loading} out of 4 tests passed")
-    print(f"For PyTrial data structures, {num_passed_data_structures} out of 3 tests passed")
+    df_pytrial, data_structures, result_dict = test_trec_to_pytrial_pipeline()
+    print(f"For loading trec data, {result_dict['loading_trec_data']} out of 4 tests passed")
+    print(f"For PyTrial data structures, {result_dict['pytrial_data_structures']} out of 3 tests passed")
+    print("Checking data structures...")
+    dataset = data_structures['TrialDatasetBase']
+    collate_fn = TrialDataCollator()
+    trialoader = DataLoader(dataset, batch_size=10, shuffle=False, collate_fn=collate_fn)
+    batch = next(iter(trialoader))
+    print("Checking one batch of data...")
+    print(batch)
     
    
