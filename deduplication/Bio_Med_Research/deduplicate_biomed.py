@@ -16,12 +16,14 @@ from subprocess import check_output
 
 # all the available datasets, can be changed or updated. But the one here are tested for preprocessingand working.
 AVAILABLE_DATASETS = [
-    "LiveQA",
-    "MedicationQA",
-    "MedMCQA",
-    "MedQA-USMLE",
-    "MedQuAD",
-    "PubMedQA"
+    "DDIExtraction",
+    "CORD-19",
+    "HOC (Hallmarks of Cancer)",
+    "TREC-COVID",
+    "SourceData",
+    "BioNLI",
+    "PubMed",
+    "BC5CDR"
 ]
 
 # all the available models, maybe can expand later.
