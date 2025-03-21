@@ -410,6 +410,22 @@ def trial_dataloader(data,
     )
 
 
+# utility to add llm text data to the dataset, general purpose, can be customized for more tasks
+def add_llm_text_data(dataset, columns):
+    """Add LLM text data to the dataset.
+    
+    dataset: dataframe
+    columns: list of columns to add
+    """
+    dataset = dataset.copy()
+    dataset['llm_text'] = ""
+    for i, row in enumerate(dataset.itertuples()):
+        llm_text = f"Here is a description of a trial: {row.nct_id}\n"
+        for column in columns:
+            llm_text += f"{column}: {getattr(row, column)}\n"
+        dataset.at[i, 'llm_text'] = llm_text
+    return dataset
+
 # Example usage
 if __name__ == "__main__":
     # Fields to include
