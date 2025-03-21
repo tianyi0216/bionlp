@@ -1,3 +1,7 @@
+# This file is used to download the clinical trial data from ClinicalTrials.gov. Most of the available clinical trial data is gotten from the ClinicalTrials.gov
+# The data is downloaded in the form of a zip file, which is then extracted into the aact-raw directory.
+# The data is then given the option to be processed into a csv, json, or xml file.
+
 import os
 import requests
 import zipfile
@@ -8,7 +12,7 @@ import csv
 from io import StringIO
 
 class ClinicalTrialDownloader:
-    """Utilities for downloading and querying clinical trial data from ClinicalTrials.gov."""
+    """Utilities for downloading clinical trial data from ClinicalTrials.gov."""
     
     BASE_URL = "https://clinicaltrials.gov/api/v2/"
     JSON_FORMAT = "format=json"
@@ -16,7 +20,7 @@ class ClinicalTrialDownloader:
     XML_FORMAT = "format=xml"
     RAW_TXT_DIR = './aact-raw'
     
-    # important fields
+    # some default fields, can be modified to anything included in the API (to be verified)
     DEFAULT_FIELDS = {
         'json': [
             'NCTId',                  
@@ -40,37 +44,24 @@ class ClinicalTrialDownloader:
 
     def __init__(self, api_key: str = None):
         """Initialize downloader.
-        
-        Parameters
-        ----------
-        api_key : str, optional in case needed
+        api_key : optional in case needed
         """
         self.api_key = api_key
         self.api_info = self._get_api_info()
 
-    def _convert_field_format(self, fields: List[str], from_fmt: str, to_fmt: str):
+    def _convert_field_format(self, fields, from_fmt, to_fmt):
         """Convert field names between formats (json/csv).
-        
-        Parameters
-        ----------
-        fields : List[str]
-            List of field names to convert
-        from_fmt : str
-            Source format ('json' or 'csv')
-        to_fmt : str
-            Target format ('json' or 'csv')
-            
-        Returns
-        -------
-        List[str]
-            Converted field names
+        fields: list of field names to convert
+        from_fmt: source format ('json' or 'csv')
+        to_fmt: target format ('json' or 'csv')
+        returns: converted field names
         """
         if from_fmt == to_fmt:
             return fields
             
         result = []
         
-        # Create mapping dictionaries
+        # dictionaries to map the field names between formats
         json_to_csv = {}
         for j, c in zip(self.DEFAULT_FIELDS['json'], self.DEFAULT_FIELDS['csv']):
             json_to_csv[j] = c
@@ -84,14 +75,14 @@ class ClinicalTrialDownloader:
                 if field in json_to_csv:
                     result.append(json_to_csv[field])
                 else:
-                    # Try to convert using common pattern
+                    # convert to a common format
                     result.append(field.lower().replace('.', '_'))
         elif from_fmt == 'csv' and to_fmt == 'json':
             for field in fields:
                 if field in csv_to_json:
                     result.append(csv_to_json[field])
                 else:
-                    # Try to convert using common pattern
+                    # convert to a common format
                     parts = field.split('_')
                     result.append(''.join(part.capitalize() if i > 0 else part for i, part in enumerate(parts)))
                     
@@ -125,7 +116,7 @@ class ClinicalTrialDownloader:
             print(f"Unexpected error: {e}")
             return "unknown", "unknown"
 
-    def _request_json(self, url: str):
+    def _request_json(self, url):
         """Make a JSON request to the API."""
         try:
             response = requests.get(url, headers=self._get_headers())
@@ -144,8 +135,8 @@ class ClinicalTrialDownloader:
             print(f"Unexpected error: {e}")
             return {}
     
-    def _request_csv(self, url: str):
-        """Make a CSV request to the API."""
+    def _request_csv(self, url):
+        """Make a CSV request to the API. Returns the list of csv rows(readers)"""
         try:
             response = requests.get(url, headers=self._get_headers())
             response.raise_for_status()
@@ -154,7 +145,7 @@ class ClinicalTrialDownloader:
                 print("Warning: Empty response received")
                 return []
                 
-            # Handle potential malformed CSV
+            # potential malformed CSV
             try:
                 csv_reader = csv.reader(StringIO(decoded_content))
                 return list(csv_reader)
@@ -174,23 +165,15 @@ class ClinicalTrialDownloader:
     @property
     def study_fields(self):
         """Get all possible fields available from ClinicalTrials.gov.
-        
-        Returns
-        -------
-        Dict[str, List[str]]
-            Dictionary with 'csv' and 'json' keys containing lists of available fields for each format
+        Pytrial's API call to get fields is not working, for now, it seems it has to be manually set or defined.
         """
         return self.DEFAULT_FIELDS
 
-    def download_data(self, date: str = '20220501', output_dir: str = './clinical_trials_data'):
-        """Download a static copy of all clinical trial documents from clinicaltrials.gov.
-        
-        Parameters
-        ----------
-        date : str
-            The date of the database copy in YYYYMMDD format
-        output_dir : str
-            The output directory for the downloaded data
+    def download_data(self, date = '20220501', output_dir = './clinical_trials_data'):
+        """Download the full dataset from ClinicalTrials.gov as a zip file. 
+        This takes a while as it is downloading the full dataset, shouldn't be used too often.
+        date: the date of the database copy in YYYYMMDD format
+        output_dir: the output directory for the downloaded data
         """
         url = f'https://aact.ctti-clinicaltrials.org/static/exported_files/daily/{date}_pipe-delimited-export.zip'
         if not os.path.exists(output_dir):
@@ -205,27 +188,16 @@ class ClinicalTrialDownloader:
         print(f'Data downloaded and extracted to {output_dir}')
 
     def query_studies(self,
-        search_expr: str,
-        fields: List[str] = None,
-        max_studies: int = 50,
-        fmt: str = 'json'):
+        search_expr,
+        fields = None,
+        max_studies = 50,
+        fmt = 'json'):
         """Query study content for specified fields from the ClinicalTrials.gov API.
-        
-        Parameters
-        ----------
-        search_expr : str
-            Search expression as specified in ClinicalTrials.gov API documentation
-        fields : List[str], optional
-            List of fields to retrieve. If None, uses default fields.
-        max_studies : int, optional
-            Maximum number of studies to return (1-1000)
-        fmt : str, optional
-            Output format: 'json' or 'csv'
-            
-        Returns
-        -------
-        Union[pd.DataFrame, Dict, List]
-            Query results in specified format
+        search_expr: search expression as specified in ClinicalTrials.gov API documentation
+        fields: list of fields to retrieve. If None, uses default fields.
+        max_studies: maximum number of studies to return (1-1000)
+        fmt: output format: 'json' or 'csv'
+        returns: query results in specified format
         """
         if fields is None:
             # Use a subset of fields by default
@@ -236,11 +208,9 @@ class ClinicalTrialDownloader:
         
         if max_studies > 1000 or max_studies < 1:
             raise ValueError("The number of studies can only be between 1 and 1000")
-        
-        # Convert fields to the correct format if needed
         field_format = 'json' if fmt == 'json' else 'csv'
         
-        # Try to detect input format and convert if needed
+        #convert fields types if needed
         if len(fields) > 0:
             first_field = fields[0]
             if first_field.islower() and field_format == 'json':
@@ -250,28 +220,28 @@ class ClinicalTrialDownloader:
                 print(f"Converting field names from JSON to CSV format.")
                 fields = self._convert_field_format(fields, 'json', 'csv')
         
-        # Check if fields are valid
+        # check if fields are valid
         valid_fields = [field for field in fields if field in self.study_fields.get(field_format, [])]
         if len(valid_fields) < len(fields):
             print(f"Warning: Some fields were not valid for format '{fmt}'. Using valid fields only: {valid_fields}")
             
-        # If no valid fields, use default ones
+        # if no valid fields, use default ones
         if not valid_fields:
             valid_fields = self.study_fields.get(field_format, [])[:5]
             print(f"Using default fields: {valid_fields}")
             
-        # Use appropriate format parameter and fields
+        # use appropriate format parameter and fields
         format_param = self.JSON_FORMAT if fmt == 'json' else self.CSV_FORMAT
         fields = valid_fields
         
-        # Join fields with pipe separator as required by the API
+        # join fields with pipe separator as required by the API
         concat_fields = "|".join(fields)
         
-        # Build the URL
+        # build the URL
         url = f"{self.BASE_URL}studies?{format_param}&query.term={search_expr}&markupFormat=legacy&fields={concat_fields}&pageSize={max_studies}"
         print(f"API URL: {url}")
         
-        # Make the request based on format
+        # equest based on format
         if fmt == 'json':
             result = self._request_json(url)
             return result
@@ -282,22 +252,13 @@ class ClinicalTrialDownloader:
             else:
                 return pd.DataFrame()
 
-    def get_full_studies(self, search_expr: str, max_studies: int = 50, fmt: str = 'json'):
+    def get_full_studies(self, search_expr, max_studies = 50, fmt = 'json'):
         """Returns all content for a maximum of 100 study records.
-        
-        Parameters
-        ----------
-        search_expr : str
-            Search expression as specified in ClinicalTrials.gov API documentation
-        max_studies : int, optional
-            Maximum number of studies to return (1-100)
-        fmt : str, optional
-            Output format: 'json' or 'csv'
+        search_expr: search expression as specified in ClinicalTrials.gov API documentation
+        max_studies: maximum number of studies to return (1-100)
+        fmt: output format: 'json' or 'csv'
             
-        Returns
-        -------
-        Union[Dict, List, pd.DataFrame]
-            Full study data in the specified format
+        returns: full study data in the specified format
         """
         if max_studies > 100 or max_studies < 1:
             raise ValueError("The number of studies can only be between 1 and 100")
@@ -320,6 +281,7 @@ class ClinicalTrialDownloader:
             try:
                 result = self._request_csv(url)
                 if len(result) > 1:
+                    # convert the list of csv rows to a pandas dataframe
                     return pd.DataFrame(result[1:], columns=result[0])
                 else:
                     return pd.DataFrame()
@@ -327,18 +289,11 @@ class ClinicalTrialDownloader:
                 print(f"Error making API request: {e}")
                 return pd.DataFrame()
 
-    def get_study_count(self, search_expr: str):
+    def get_study_count(self, search_expr):
         """Get the count of studies matching a search expression.
-        
-        Parameters
-        ----------
-        search_expr : str
-            Search expression as specified in ClinicalTrials.gov API documentation
+        search_expr: search expression as specified in ClinicalTrials.gov API documentation
             
-        Returns
-        -------
-        int
-            Number of studies matching the search expression
+        returns: number of studies matching the search expression
         """
         if not search_expr:
             raise ValueError("The search expression cannot be blank.")
@@ -357,41 +312,30 @@ class ClinicalTrialDownloader:
             print(f"Unexpected error: {e}")
             return 0
 
-    def process_to_csv(self, input_dir: str, output_file: str):
-        """Process downloaded data to CSV format.
+    def process_to_csv(self, input_dir, output_file):
+        """Save downloaded data to CSV format.
         
-        Parameters
-        ----------
-        input_dir : str
-            Directory containing the downloaded data
-        output_file : str
-            Path to save the processed CSV file
+        input_dir: directory containing the downloaded data
+        output_file: path to save the processed CSV file
         """
         df = pd.read_csv(os.path.join(input_dir, 'studies.txt'), sep='|')
         df.to_csv(output_file, index=False)
         print(f'Data processed to CSV at {output_file}')
 
-    def process_to_json(self, input_dir: str, output_file: str):
-        """Process downloaded data to JSON format.
+    def process_to_json(self, input_dir, output_file):
+        """Save downloaded data to JSON format.
         
-        Parameters
-        ----------
-        input_dir : str
-            Directory containing the downloaded data
-        output_file : str
-            Path to save the processed JSON file
+        input_dir: directory containing the downloaded data
+        output_file: path to save the processed JSON file
         """
         df = pd.read_csv(os.path.join(input_dir, 'studies.txt'), sep='|')
         df.to_json(output_file, orient='records', lines=True)
         print(f'Data processed to JSON at {output_file}')
 
-    def process_to_xml(self, input_dir: str, output_file: str):
-        """Process downloaded data to XML format.
+    def process_to_xml(self, input_dir, output_file):
+        """Save downloaded data to XML format.
         
-        Parameters
-        ----------
-        input_dir : str
-            Directory containing the downloaded data
+        input_dir: directory containing the downloaded data
         output_file : str
             Path to save the processed XML file
         """
@@ -410,11 +354,11 @@ class ClinicalTrialDownloader:
         return f"ClinicalTrials.gov client v{self.api_info[0]}, database last updated {self.api_info[1]}"
 
 if __name__ == "__main__":
-    # Example usage
+    # test the downloader
     downloader = ClinicalTrialDownloader()
     print(f"\nClinicalTrials.gov Downloader: {downloader}")
     
-    # Print available fields
+    # print the available fields
     print("\nAvailable fields:")
     print("JSON fields (first 10):", downloader.study_fields.get("json", [])[:10])
     print("CSV fields (first 10):", downloader.study_fields.get("csv", [])[:10])
@@ -456,12 +400,12 @@ if __name__ == "__main__":
     except Exception as e:
         print(f"Error in API queries: {e}")
     
-    # Download and process data
+    # test the download and processing of the full dataset
     print("\nDo you want to download and process the full dataset? (y/n)")
     answer = input()
     if answer.lower() == 'y':
-        print("\nDownloading and processing data (this may take a while):")
-        downloader.download_data()
+        print("\nDownloading and processing data:")
+        downloader.download_data() # this takes very long as it is downloading the full dataset, shouldn't be used too often
         downloader.process_to_csv('./clinical_trials_data/aact-raw', './clinical_trials_data/clinical_trials.csv')
         downloader.process_to_json('./clinical_trials_data/aact-raw', './clinical_trials_data/clinical_trials.json')
         downloader.process_to_xml('./clinical_trials_data/aact-raw', './clinical_trials_data/clinical_trials.xml')

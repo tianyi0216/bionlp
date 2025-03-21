@@ -16,13 +16,10 @@ class TrialOutcomeProcessor:
     This class preprocesses trial data to prepare it for outcome prediction models.
     """
     
-    def __init__(self, required_fields: List[str] = None):
+    def __init__(self, required_fields = None):
         """Initialize the trial outcome processor.
         
-        Parameters
-        ----------
-        required_fields : List[str], optional
-            Required fields for outcome prediction
+        required_fields: Required fields for outcome prediction
         """
         if required_fields is None:
             self.required_fields = [
@@ -33,18 +30,12 @@ class TrialOutcomeProcessor:
         else:
             self.required_fields = required_fields
     
-    def load_data(self, file_path: str) -> pd.DataFrame:
+    def load_data(self, file_path):
         """Load trial data from file.
         
-        Parameters
-        ----------
-        file_path : str
-            Path to trial data file
+        file_path: path to trial data file
             
-        Returns
-        -------
-        pd.DataFrame
-            Processed trial data
+        returns: processed trial data
         """
         # Use the TrialPreprocessor for loading and basic processing
         preprocessor = TrialPreprocessor(required_fields=self.required_fields)
@@ -52,18 +43,12 @@ class TrialOutcomeProcessor:
         
         return self._process_outcome_labels(df)
     
-    def _process_outcome_labels(self, df: pd.DataFrame) -> pd.DataFrame:
+    def _process_outcome_labels(self, df):
         """Process outcome labels based on trial status.
         
-        Parameters
-        ----------
-        df : pd.DataFrame
-            Trial data with status information
+        df: trial data with status information
             
-        Returns
-        -------
-        pd.DataFrame
-            Data with processed outcome labels
+        returns: data with processed outcome labels
         """
         # Map status to outcome labels
         # 0: Failed/Terminated, 1: Completed/Successful
@@ -263,12 +248,12 @@ class TrialOutcomeDataset(Dataset):
         Proportion of the dataset to include in the test split
     """
     
-    def __init__(self, data: Union[pd.DataFrame, str], 
-                categorical_cols: List[str] = None,
-                numeric_cols: List[str] = None, 
-                text_cols: List[str] = None,
-                test_size: float = 0.2,
-                random_state: int = 42):
+    def __init__(self, data, 
+                categorical_cols = None,
+                numeric_cols = None, 
+                text_cols = None,
+                test_size = 0.2,
+                random_state = 42):
         """Initialize the dataset."""
         self.processor = TrialOutcomeProcessor()
         
@@ -329,12 +314,8 @@ class TrialOutcomeDataset(Dataset):
 class TrialOutcomeSubset(Dataset):
     """Subset of TrialOutcomeDataset for train/test splitting.
     
-    Parameters
-    ----------
-    dataset : TrialOutcomeDataset
-        The original dataset
-    indices : List[int]
-        Indices to include in the subset
+    dataset: The original dataset
+    indices: Indices to include in the subset
     """
     
     def __init__(self, dataset, indices):
@@ -380,31 +361,19 @@ def create_outcome_prediction_dataloader(
     test_size: float = 0.2,
     random_state: int = 42,
     shuffle: bool = True
-) -> Tuple[DataLoader, DataLoader]:
+):
     """Create DataLoaders for trial outcome prediction.
     
-    Parameters
-    ----------
-    data : pd.DataFrame or str
-        DataFrame containing trial data or path to trial data file
-    batch_size : int, optional
-        Batch size
-    categorical_cols : List[str], optional
-        Categorical columns to encode
-    numeric_cols : List[str], optional
-        Numeric columns to scale
-    text_cols : List[str], optional
-        Text columns to process
-    test_size : float, optional
-        Proportion of the dataset to include in the test split
-    random_state : int, optional
-        Random state for reproducibility
-    shuffle : bool, optional
-        Whether to shuffle the training data
+    data: DataFrame containing trial data or path to trial data file
+    batch_size: Batch size
+    categorical_cols: Categorical columns to encode
+    numeric_cols: Numeric columns to scale
+    text_cols: Text columns to process
+    test_size: Proportion of the dataset to include in the test split
+    random_state: Random state for reproducibility
+    shuffle: Whether to shuffle the training data
         
-    Returns
-    -------
-    Tuple[DataLoader, DataLoader]
+    returns: Tuple[DataLoader, DataLoader]
         Training and test DataLoaders
     """
     dataset = TrialOutcomeDataset(
@@ -438,21 +407,18 @@ def create_outcome_prediction_dataloader(
     return train_loader, test_loader
 
 
-# Define a simple MLP model for outcome prediction
+# This defines a simple MLP model for trial outcome prediction testing.
 class TrialOutcomePredictionModel(torch.nn.Module):
     """Simple MLP model for trial outcome prediction.
     
     Parameters
     ----------
-    input_dim : int
-        Dimension of input features
-    hidden_dims : List[int], optional
-        Dimensions of hidden layers
-    dropout_rate : float, optional
-        Dropout rate for regularization
+    input_dim : Dimension of input features
+    hidden_dims : Dimensions of hidden layers
+    dropout_rate : Dropout rate for regularization
     """
     
-    def __init__(self, input_dim: int, hidden_dims: List[int] = None, dropout_rate: float = 0.5):
+    def __init__(self, input_dim, hidden_dims = None, dropout_rate = 0.5):
         """Initialize the model."""
         super().__init__()
         

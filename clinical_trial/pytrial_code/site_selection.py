@@ -1,3 +1,7 @@
+# For site selection, we need to create a dataset that contains trial data and site data.
+# We also need to create a collator that can collate the data into a batch.
+# We also need to create a dataloader that can load the data into a DataLoader.
+
 import os
 import pandas as pd
 import numpy as np
@@ -14,13 +18,10 @@ class SiteDataProcessor:
     This class loads and preprocesses site-related data for trial site selection.
     """
     
-    def __init__(self, required_fields: List[str] = None):
+    def __init__(self, required_fields):
         """Initialize the site data processor.
         
-        Parameters
-        ----------
-        required_fields : List[str], optional
-            Required fields for site data
+        required_fields: list of required fields for sites selection data.
         """
         if required_fields is None:
             self.required_fields = [
@@ -30,18 +31,10 @@ class SiteDataProcessor:
         else:
             self.required_fields = required_fields
     
-    def load_data(self, file_path: str) -> pd.DataFrame:
+    def load_data(self, file_path):
         """Load site data from file.
-        
-        Parameters
-        ----------
-        file_path : str
-            Path to site data file
-            
-        Returns
-        -------
-        pd.DataFrame
-            Processed site data
+        file_path: path to site data file
+        returns: processed site data
         """
         if file_path.endswith('.csv'):
             df = pd.read_csv(file_path)
@@ -52,40 +45,32 @@ class SiteDataProcessor:
         
         return self._validate_and_clean_df(df)
     
-    def _validate_and_clean_df(self, df: pd.DataFrame) -> pd.DataFrame:
+    def _validate_and_clean_df(self, df):
         """Validate and clean site data.
-        
-        Parameters
-        ----------
-        df : pd.DataFrame
-            Raw site data
-            
-        Returns
-        -------
-        pd.DataFrame
-            Cleaned site data
+        df: raw site data
+        returns: cleaned site data
         """
-        # Standardize column names
+        # standardize column names
         df.columns = [col.lower().replace('.', '_') for col in df.columns]
         
-        # Check required fields
+        # ensure required fields are present
         missing_fields = [field for field in self.required_fields if field not in df.columns]
         if missing_fields:
             print(f"Warning: Missing required site fields: {missing_fields}")
-            # Add missing fields with empty values
+            # add missing fields with empty values
             for field in missing_fields:
                 df[field] = "none"
         
-        # Fill NaN values
+        # fill NaN values
         df.fillna("none", inplace=True)
         
-        # Ensure site_id column exists
+        # ensure site_id column exists
         if 'site_id' not in df.columns and 'id' in df.columns:
             df['site_id'] = df['id']
         elif 'site_id' not in df.columns:
             df['site_id'] = [f"SITE{i:06d}" for i in range(len(df))]
         
-        # Convert string columns to appropriate numeric types when possible
+        # convert string columns to appropriate numeric types when possible
         for col in df.columns:
             if df[col].dtype == 'object':
                 try:
@@ -95,20 +80,13 @@ class SiteDataProcessor:
         
         return df
     
-    def process_demographics(self, df: pd.DataFrame) -> pd.DataFrame:
+    def process_demographics(self, df):
         """Process demographics data for sites.
         
-        Parameters
-        ----------
-        df : pd.DataFrame
-            Site data with demographics information
-            
-        Returns
-        -------
-        pd.DataFrame
-            Processed site data with demographics
+        df: site data with demographics information
+        returns: processed site data with demographics
         """
-        # Convert demographic columns to appropriate format
+        # convert demographic columns to appropriate format
         demographic_cols = [col for col in df.columns if any(demo in col for demo in 
                                                            ['gender', 'age', 'race', 'ethnicity'])]
         
@@ -117,7 +95,7 @@ class SiteDataProcessor:
             df['has_demographics'] = False
             return df
         
-        # Convert to numeric if possible
+        # convert to numeric if possible
         for col in demographic_cols:
             try:
                 df[col] = pd.to_numeric(df[col], errors='ignore')
@@ -131,44 +109,42 @@ class SiteDataProcessor:
 class SiteBase(Dataset):
     """Base dataset for site data.
     
-    Parameters
-    ----------
-    data : pd.DataFrame or str
+    data: pd.DataFrame or str
         DataFrame containing site data or path to data file
     """
     
-    def __init__(self, data: Union[pd.DataFrame, str]):
+    def __init__(self, data):
         """Initialize the dataset."""
         self.processor = SiteDataProcessor()
         
-        # Load data if a file path is provided
+        # load data if given a path
         if isinstance(data, str):
             self.df = self.processor.load_data(data)
         else:
             self.df = data.copy()
         
-        # Convert to numeric features
+        # convert to numeric features
         self._prepare_features()
     
     def _prepare_features(self):
         """Prepare features for model input."""
-        # Identify numeric and categorical columns
+        # identify numeric and categorical columns
         numeric_cols = self.df.select_dtypes(include=['int64', 'float64']).columns.tolist()
         categorical_cols = self.df.select_dtypes(include=['object']).columns.tolist()
         
-        # One-hot encode categorical variables
+        # one-hot encode categorical variables
         one_hot_df = pd.get_dummies(self.df[categorical_cols], drop_first=False)
         
-        # Normalize numeric variables
+        # normalize numeric variables
         numeric_df = self.df[numeric_cols].copy()
         for col in numeric_cols:
             if numeric_df[col].std() > 0:
                 numeric_df[col] = (numeric_df[col] - numeric_df[col].mean()) / numeric_df[col].std()
         
-        # Combine features
+        # combine features
         self.features = pd.concat([numeric_df, one_hot_df], axis=1)
         
-        # Store feature dimension
+        # store feature dimension
         self.feature_dim = self.features.shape[1]
     
     def __len__(self):
@@ -185,20 +161,17 @@ class SiteBase(Dataset):
 class SiteBaseDemographics(SiteBase):
     """Dataset for site data with demographics information.
     
-    Parameters
-    ----------
-    data : pd.DataFrame or str
-        DataFrame containing site data with demographics or path to data file
+    data: DataFrame containing site data with demographics or path to data file
     """
     
-    def __init__(self, data: Union[pd.DataFrame, str]):
+    def __init__(self, data):
         """Initialize the dataset."""
         super().__init__(data)
         
-        # Process demographics data
+        # process demographics data
         self.df = self.processor.process_demographics(self.df)
         
-        # Extract demographic labels
+        # extract demographic labels
         self._extract_demographic_labels()
     
     def _extract_demographic_labels(self):
@@ -215,15 +188,8 @@ class SiteBaseDemographics(SiteBase):
     def get_label(self, site_idx):
         """Get demographic labels for a site.
         
-        Parameters
-        ----------
-        site_idx : int or list
-            Index of site(s)
-            
-        Returns
-        -------
-        np.ndarray
-            Demographic labels
+        site_idx: index of site(s)
+        returns: demographic labels
         """
         if self.demographic_labels is None:
             return np.zeros((1, 1))
@@ -236,51 +202,45 @@ class SiteBaseDemographics(SiteBase):
 class TrialSiteDataset(Dataset):
     """Dataset for trial-site pairs for site selection.
     
-    Parameters
-    ----------
-    trial_data : pd.DataFrame or str
-        DataFrame containing trial data or path to trial data file
-    site_data : pd.DataFrame or str
-        DataFrame containing site data or path to site data file
-    mapping_data : pd.DataFrame or str, optional
-        DataFrame containing trial-site mappings or path to mapping file
-    has_demographics : bool, optional
-        Whether site data includes demographics
+    trial_data: DataFrame containing trial data or path to trial data file
+    site_data: DataFrame containing site data or path to site data file
+    mapping_data: DataFrame containing trial-site mappings or path to mapping file
+    has_demographics: whether site data includes demographics
     """
     
     def __init__(self, 
-                trial_data: Union[pd.DataFrame, str],
-                site_data: Union[pd.DataFrame, str],
-                mapping_data: Union[pd.DataFrame, str] = None,
-                has_demographics: bool = False):
+                trial_data,
+                site_data,
+                mapping_data = None,
+                has_demographics = False):
         """Initialize the dataset."""
-        # Load trial data
+        # load trial data
         if isinstance(trial_data, str):
             self.trial_processor = TrialPreprocessor()
             self.trial_df = self.trial_processor.load_data(trial_data)
         else:
             self.trial_df = trial_data.copy()
         
-        # Load site data
+        # load site data
         if has_demographics:
             self.sites = SiteBaseDemographics(site_data)
         else:
             self.sites = SiteBase(site_data)
         
-        # Load or create trial-site mappings
+        # load or create trial-site mappings
         if mapping_data is not None:
             if isinstance(mapping_data, str):
                 self.mapping_df = pd.read_csv(mapping_data)
             else:
                 self.mapping_df = mapping_data.copy()
             
-            # Extract mappings and enrollment values
+            # extract mappings and enrollment values
             self._process_mappings()
         else:
-            # Create random mappings for demonstration
+            # create random mappings for demonstration
             self._create_example_mappings()
         
-        # Process trial data for feature extraction
+        # process trial data for feature extraction
         self._process_trial_features()
     
     def _process_mappings(self):
@@ -288,15 +248,15 @@ class TrialSiteDataset(Dataset):
         if 'trial_id' not in self.mapping_df.columns or 'site_id' not in self.mapping_df.columns:
             raise ValueError("Mapping data must contain 'trial_id' and 'site_id' columns")
         
-        # Convert to lists of trial-site pairs
+        # convert to lists of trial-site pairs
         self.mappings = []
         self.enrollments = []
         
         for trial_id in self.trial_df['nct_id'].unique():
-            # Get sites for this trial
+            # get sites for this trial
             trial_sites = self.mapping_df[self.mapping_df['trial_id'] == trial_id]
             
-            # Extract site indices
+            # extract site indices
             site_indices = []
             enrollment_values = []
             
@@ -307,11 +267,11 @@ class TrialSiteDataset(Dataset):
                 if site_idx:
                     site_indices.append(site_idx[0])
                     
-                    # Get enrollment value if available
+                    # get enrollment value if available
                     if 'enrollment' in row:
                         enrollment_values.append(row['enrollment'])
                     else:
-                        enrollment_values.append(1.0)  # Default enrollment
+                        enrollment_values.append(1.0)  # default enrollment
             
             if site_indices:
                 self.mappings.append(site_indices)
@@ -325,18 +285,18 @@ class TrialSiteDataset(Dataset):
         num_sites = len(self.sites)
         
         for _ in range(len(self.trial_df)):
-            # Handle case where num_sites is small
+            # handle case where num_sites is small
             if num_sites < 5:
-                # If we have fewer than 5 sites, use all available sites
+                # if we have fewer than 5 sites, use all available sites
                 num_selected = num_sites
                 site_indices = list(range(num_sites))
             else:
-                # Randomly select 5-15 sites for each trial, limited by available sites
+                # randomly select 5-15 sites for each trial, limited by available sites
                 max_sites = min(15, num_sites)
                 num_selected = np.random.randint(5, max_sites + 1)  # +1 because upper bound is exclusive
                 site_indices = np.random.choice(num_sites, num_selected, replace=False).tolist()
             
-            # Generate random enrollment values
+            # generate random enrollment values
             enrollment_values = np.random.randint(1, 20, size=num_selected).tolist()
             
             self.mappings.append(site_indices)
@@ -344,10 +304,10 @@ class TrialSiteDataset(Dataset):
     
     def _process_trial_features(self):
         """Process trial features for model input."""
-        # Get trial features
+        # get trial features
         trial_features = {}
         
-        # Extract numeric and categorical columns
+        # extract numeric and categorical columns
         numeric_cols = self.trial_df.select_dtypes(include=['int64', 'float64']).columns.tolist()
         categorical_cols = self.trial_df.select_dtypes(include=['object']).columns.tolist()
         
@@ -395,13 +355,10 @@ class TrialSiteDataset(Dataset):
 class TrialSiteCollator:
     """Collator for batching trial-site data.
     
-    Parameters
-    ----------
-    has_demographics : bool
-        Whether site data includes demographics
+    has_demographics: whether site data includes demographics
     """
     
-    def __init__(self, has_demographics: bool = False):
+    def __init__(self, has_demographics = False):
         """Initialize the collator."""
         self.has_demographics = has_demographics
     
@@ -454,34 +411,22 @@ class TrialSiteCollator:
 
 
 def create_site_selection_dataloader(
-    trial_data: Union[pd.DataFrame, str],
-    site_data: Union[pd.DataFrame, str],
-    mapping_data: Union[pd.DataFrame, str] = None,
-    batch_size: int = 16,
-    has_demographics: bool = False,
-    shuffle: bool = True
-) -> DataLoader:
+    trial_data,
+    site_data,
+    mapping_data = None,
+    batch_size = 16,
+    has_demographics = False,
+    shuffle = True):
     """Create a DataLoader for site selection.
     
-    Parameters
-    ----------
-    trial_data : pd.DataFrame or str
-        DataFrame containing trial data or path to trial data file
-    site_data : pd.DataFrame or str
-        DataFrame containing site data or path to site data file
-    mapping_data : pd.DataFrame or str, optional
-        DataFrame containing trial-site mappings or path to mapping file
-    batch_size : int, optional
-        Batch size
-    has_demographics : bool, optional
-        Whether site data includes demographics
-    shuffle : bool, optional
-        Whether to shuffle the data
+    trial_data: DataFrame containing trial data or path to trial data file
+    site_data: DataFrame containing site data or path to site data file
+    mapping_data: DataFrame containing trial-site mappings or path to mapping file
+    batch_size: batch size
+    has_demographics: whether site data includes demographics
+    shuffle: whether to shuffle the data
         
-    Returns
-    -------
-    DataLoader
-        DataLoader for site selection
+    returns: DataLoader for site selection
     """
     dataset = TrialSiteDataset(
         trial_data=trial_data,
@@ -500,7 +445,7 @@ def create_site_selection_dataloader(
     )
 
 
-# Example usage
+# Testing
 if __name__ == "__main__":
     # Example 1: Create from sample data
     print("Creating from sample trial and site data...")

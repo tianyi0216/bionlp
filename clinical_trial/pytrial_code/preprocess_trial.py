@@ -6,13 +6,13 @@ from torch.utils.data import Dataset, DataLoader
 from typing import List, Dict, Union, Optional
 
 class TrialPreprocessor:
-    """General-purpose clinical trial data preprocessor.
+    """General-purpose clinical trial data preprocessor. 
     
-    This class loads trial data from various formats (CSV, JSON, XML)
+    This class loads trial data from various formats (CSV, JSON, XML )
     and preprocesses it into a standardized format.
     """
     
-    # Field mappings for XML parsing (from trec_util.py)
+    # field mappings for XML parsing (from trec_util.py)
     XML_FIELD_MAPPINGS = {
         # Basic Information
         'nct_id': './/nct_id',
@@ -91,33 +91,24 @@ class TrialPreprocessor:
         'has_results': './/has_results'
     }
     
-    def __init__(self, 
-                 required_fields: List[str] = None):
+    def __init__(self, required_fields):
         """Initialize the preprocessor.
         
-        Parameters
-        ----------
-        required_fields : customized list of fields
+        required_fields: customized list of fields
         """
         if required_fields is None:
-            # default fields to be included
+            # default fields to be included, can be changed
             self.required_fields = ['nct_id', 'brief_title', 'brief_summary', 
                                    'eligibility_criteria', 'condition', 'overall_status']
         else:
             self.required_fields = required_fields
     
-    def load_data(self, file_path: str):
+    def load_data(self, file_path):
         """Load trial data from file based on its extension.
         
-        Parameters
-        ----------
-        file_path : str
-            Path to the data file
+        file_path: path to the data file
             
-        Returns
-        -------
-        pd.DataFrame
-            Loaded data in DataFrame format
+        returns: loaded data in DataFrame format
         """
         if file_path.endswith('.csv'):
             return self.load_csv(file_path)
@@ -128,63 +119,45 @@ class TrialPreprocessor:
         else:
             raise ValueError(f"Unsupported file format: {file_path}")
     
-    def load_csv(self, file_path: str):
+    def load_csv(self, file_path):
         """Load trial data from CSV.
         
-        Parameters
-        ----------
-        file_path : str
-            Path to the CSV file
+        file_path: path to the CSV file
             
-        Returns
-        -------
-        pd.DataFrame
-            Loaded data in DataFrame format
+        returns: loaded data in DataFrame format
         """
         df = pd.read_csv(file_path)
         return self._validate_and_clean_df(df)
     
-    def load_json(self, file_path: str):
+    def load_json(self, file_path):
         """Load trial data from JSON.
-        
-        Parameters
-        ----------
-        file_path : str
-            Path to the JSON file
+
+        file_path: path to the JSON file
             
-        Returns
-        -------
-        pd.DataFrame
-            Loaded data in DataFrame format
+        returns: loaded data in DataFrame format
         """
         if file_path.endswith('.jsonl'):
-            # For line-delimited JSON
+            # line delimited JSON
             with open(file_path, 'r') as f:
                 data = [json.loads(line) for line in f]
         else:
-            # For regular JSON
+            # regular JSON
             with open(file_path, 'r') as f:
                 data = json.load(f)
                 
-            # Handle case where JSON is an object with 'studies' key
+            # handle case where JSON is an object with 'studies' key
             if isinstance(data, dict) and 'studies' in data:
                 data = data['studies']
                 
         df = pd.DataFrame(data)
         return self._validate_and_clean_df(df)
     
-    def load_xml(self, file_path: str):
+    def load_xml(self, file_path):
         """Load trial data from XML.
         
-        Parameters
-        ----------
-        file_path : str
-            Path to the XML file
+        file_path: path to the XML file
             
-        Returns
-        -------
-        pd.DataFrame
-            Loaded data in DataFrame format
+        returns: loaded data in DataFrame format
         """
         tree = ET.parse(file_path)
         root = tree.getroot()
@@ -233,22 +206,16 @@ class TrialPreprocessor:
         return self._validate_and_clean_df(df)
     
     def _validate_and_clean_df(self, df):
-        """Validate and clean the DataFrame.
+        """Validate and clean the DataFrame. From pytrial
         
-        Parameters
-        ----------
-        df : pd.DataFrame
-            Input DataFrame
+        df: input DataFrame
             
-        Returns
-        -------
-        pd.DataFrame
-            Cleaned DataFrame
+        returns: cleaned DataFrame
         """
-        # Standardize column names
+        # standardize column names
         df.columns = [col.lower().replace('.', '_') for col in df.columns]
         
-        # Check required fields
+        # check required fields
         missing_fields = [field for field in self.required_fields if field not in df.columns]
         if missing_fields:
             print(f"Warning: Missing required fields: {missing_fields}")
@@ -256,7 +223,7 @@ class TrialPreprocessor:
             for field in missing_fields:
                 df[field] = "none"
         
-        # Fill NaN values
+        # fill NaN values
         df.fillna("none", inplace=True)
         
         # Ensure id column exists
@@ -267,12 +234,12 @@ class TrialPreprocessor:
         elif 'nct_id' not in df.columns:
             df['nct_id'] = [f"TRIAL{i:06d}" for i in range(len(df))]
             
-        # Convert list fields to strings for consistency
+        # convert list fields to strings for consistency
         for col in df.columns:
             if df[col].apply(lambda x: isinstance(x, list)).any():
                 df[col] = df[col].apply(lambda x: ', '.join(x) if isinstance(x, list) else x)
                 
-        # Standardize status field name
+        # standardize status field name
         if 'overall_status' not in df.columns and 'study_status' in df.columns:
             df['overall_status'] = df['study_status']
         
@@ -306,15 +273,8 @@ class TrialPreprocessor:
     
     def _split_criteria(self, criteria):
         """Split eligibility criteria into inclusion and exclusion.
-        
-        Parameters
-        ----------
-        criteria : str
-            Raw eligibility criteria text
-            
-        Returns
-        -------
-        tuple
+        criteria: raw eligibility criteria text
+        returns: tuple
             (inclusion_criteria, exclusion_criteria)
         """
         if not criteria or criteria == "none":
@@ -356,20 +316,15 @@ class TrialPreprocessor:
 class TrialDataset(Dataset):
     """Dataset for clinical trial data.
     
-    Parameters
-    ----------
-    data : pd.DataFrame or str
-        DataFrame containing trial data or path to data file
-    fields : List[str], optional
-        List of fields to include
-    extract_criteria : bool, optional
-        Whether to extract inclusion/exclusion criteria
+    data: DataFrame containing trial data or path to data file
+    fields: List of fields to include
+    extract_criteria: whether to extract inclusion/exclusion criteria
     """
     
     def __init__(self, 
-                data: Union[pd.DataFrame, str], 
-                fields: List[str] = None,
-                extract_criteria: bool = True):
+                data,
+                fields=None,
+                extract_criteria=True):
         """Initialize the dataset."""
         self.preprocessor = TrialPreprocessor(required_fields=fields)
         
@@ -429,29 +384,19 @@ class TrialDataCollator:
         return batch
 
 
-def create_trial_dataloader(data: Union[pd.DataFrame, str],
-                           batch_size: int = 32,
-                           fields: List[str] = None,
-                           extract_criteria: bool = True,
-                           shuffle: bool = False) -> DataLoader:
+def trial_dataloader(data,
+                           batch_size=32,
+                           fields=None,
+                           extract_criteria=True,
+                           shuffle=False) -> DataLoader:
     """Create a DataLoader for trial data.
     
-    Parameters
-    ----------
-    data : pd.DataFrame or str
-        DataFrame containing trial data or path to data file
-    batch_size : int, optional
-        Batch size
-    fields : List[str], optional
-        List of fields to include
-    extract_criteria : bool, optional
-        Whether to extract inclusion/exclusion criteria
-    shuffle : bool, optional
-        Whether to shuffle the data
-        
-    Returns
-    -------
-    DataLoader
+    data: DataFrame containing trial data or path to data file
+    batch_size: batch size
+    fields: list of fields to include
+    extract_criteria: whether to extract inclusion/exclusion criteria
+    shuffle: whether to shuffle the data
+    returns: DataLoader
         DataLoader for trial data
     """
     dataset = TrialDataset(data, fields=fields, extract_criteria=extract_criteria)
@@ -481,7 +426,7 @@ if __name__ == "__main__":
     # Example 1: Load from CSV
     print("Loading from CSV...")
     try:
-        dataloader = create_trial_dataloader(
+        dataloader = trial_dataloader(
             "./clinical_trials_data/clinical_trials.csv",
             batch_size=4,
             fields=fields
@@ -513,7 +458,7 @@ if __name__ == "__main__":
     print(f"Trial ID: {trial['nct_id']}")
     
     # Create dataloader
-    dataloader = create_trial_dataloader(
+    dataloader = trial_dataloader(
         df,
         batch_size=2,
         fields=['nct_id', 'brief_title', 'eligibility_criteria', 'inclusion_criteria', 'exclusion_criteria']
