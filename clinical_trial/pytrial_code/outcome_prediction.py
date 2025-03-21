@@ -448,6 +448,66 @@ class TrialOutcomePredictionModel(torch.nn.Module):
     def forward(self, x):
         """Forward pass."""
         return self.model(x)
+    
+def add_llm_text_data_for_trial_outcome(dataset, columns):
+    """Add a basic prompt-style string to each trial for LLM input"""
+    dataset = dataset.copy()
+    dataset['llm_text'] = ""
+    for i, row in dataset.iterrows():
+        text = "This is a clinical trial.\n"
+        for col in columns:
+            text += f"{col}: {row.get(col, 'N/A')}\n"
+        dataset.at[i, 'llm_text'] = text.strip()
+    return dataset
+    
+def create_llm_dataset_for_trial_outcome_prediction(trial_data, include_labels=True):
+    """
+    Create a dataset for LLM training by generating natural language prompts 
+    from trial data for outcome prediction.
+
+    Parameters:
+        trial_data (pd.DataFrame): DataFrame of trial information, must include 'outcome'
+        include_labels (bool): Whether to include the outcome as a response column
+
+    Returns:
+        pd.DataFrame: Dataset with 'prompt' and (optionally) 'response'
+    """
+    trial_data = trial_data.copy()
+
+    if 'outcome' not in trial_data.columns:
+        raise ValueError("Missing 'outcome' column in trial_data. Please preprocess with outcome labels.")
+
+    prompts = []
+    responses = []
+
+    for _, trial_row in trial_data.iterrows():
+        prompt = f"""
+You are a clinical trial analyst. Based on the following information, determine whether this clinical trial was ultimately successful or failed.
+
+Trial Information:
+- ID: {trial_row.get('nct_id', 'N/A')}
+- Title: {trial_row.get('brief_title', 'N/A')}
+- Summary: {trial_row.get('brief_summary', 'N/A')}
+- Phase: {trial_row.get('phase', 'N/A')}
+- Condition: {trial_row.get('condition', 'N/A')}
+- Eligibility Criteria: {trial_row.get('eligibility_criteria', 'N/A')}
+
+Question: Based on this information, predict whether the trial completed successfully or failed.
+Respond with either "Successful" or "Failed".
+Answer:
+""".strip()
+        prompts.append(prompt)
+
+        if include_labels:
+            outcome_label = "Successful" if trial_row['outcome'] == 1 else "Failed"
+            responses.append(outcome_label)
+
+    output_df = pd.DataFrame({'prompt': prompts})
+    if include_labels:
+        output_df['response'] = responses
+
+    return output_df
+
 
 
 # Example usage
