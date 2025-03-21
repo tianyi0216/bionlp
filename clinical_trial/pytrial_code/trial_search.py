@@ -449,6 +449,72 @@ def create_trial_search_dataloader(
     
     return dataloader, dataset
 
+def create_llm_dataset_for_trial_search(trial_data, user_queries=None, include_labels=False):
+    """
+    Create an LLM dataset for trial search.
+
+    Each row corresponds to a (query, trial) pair. The model is expected to decide 
+    whether the trial matches the user query.
+
+    Parameters:
+        trial_data (pd.DataFrame): Clinical trial dataset (should include combined_text)
+        user_queries (List[str]): Optional list of search queries to generate examples
+        include_labels (bool): Whether to include binary labels (1 = match, 0 = not match)
+
+    Returns:
+        pd.DataFrame: LLM training data with 'prompt' and optionally 'response'
+    """
+    if user_queries is None:
+        # Default: infer queries from condition or brief_title
+        user_queries = trial_data['condition'].dropna().unique().tolist()
+
+    prompts = []
+    responses = []
+
+    for query in user_queries:
+        for _, row in trial_data.iterrows():
+            prompt = f"""
+You are a clinical research assistant helping patients find relevant clinical trials.
+
+User query: "{query}"
+
+Here is a clinical trial:
+- Title: {row.get('brief_title', 'N/A')}
+- Summary: {row.get('brief_summary', 'N/A')}
+- Condition: {row.get('condition', 'N/A')}
+- Intervention: {row.get('intervention_name', 'N/A')}
+- Phase: {row.get('phase', 'N/A')}
+- Status: {row.get('overall_status', 'N/A')}
+
+Question: Is this clinical trial relevant to the user's query?
+Respond with "Yes" or "No" and briefly justify your answer.
+Answer:
+""".strip()
+            prompts.append(prompt)
+
+            if include_labels:
+                # Simple heuristic: label as relevant if condition matches query (case-insensitive)
+                label = "Yes" if query.lower() in str(row.get('condition', '')).lower() else "No"
+                responses.append(label)
+
+    output_df = pd.DataFrame({'prompt': prompts})
+    if include_labels:
+        output_df['response'] = responses
+
+    return output_df
+
+def add_llm_text_data_for_trial_search(dataset, fields):
+    """Add a textual description of each trial for LLM input"""
+    dataset = dataset.copy()
+    dataset['llm_text'] = ""
+    for i, row in dataset.iterrows():
+        llm_text = "Here is a clinical trial:\n"
+        for field in fields:
+            llm_text += f"{field}: {row.get(field, 'N/A')}\n"
+        dataset.at[i, 'llm_text'] = llm_text.strip()
+    return dataset
+
+
 
 # Example usage
 if __name__ == "__main__":
