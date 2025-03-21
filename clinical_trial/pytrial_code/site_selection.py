@@ -444,6 +444,107 @@ def create_site_selection_dataloader(
         collate_fn=collator
     )
 
+# utility to add llm text data to the dataset, general purpose, can be customized for more tasks
+def add_llm_text_data(dataset, columns):
+    """Add LLM text data to the dataset.
+    
+    dataset: dataframe
+    columns: list of columns to add
+    """
+    dataset = dataset.copy()
+    dataset['llm_text'] = ""
+    for i, row in enumerate(dataset.itertuples()):
+        llm_text = f"Here is a description of a site: {row.site_id}\n"
+        for column in columns:
+            llm_text += f"{column}: {getattr(row, column)}\n"
+        dataset.at[i, 'llm_text'] = llm_text
+    return dataset
+
+
+# LLM data preparation advanced, can be customized for more tasks, we provide classification and regression examples here
+def create_llm_dataset_for_site_selection(trial_data, site_data, mapping_data=None, include_labels=True):
+    """
+    Create a dataset for LLM training by generating natural language prompts 
+    from trial and site data.
+    
+    trial_data: Trial dataset
+    site_data: Site dataset
+    mapping_data: Mapping data for trial-site relationships.
+    include_labels: Whether to include enrollment labels as target outputs.
+    """
+    processor = SiteDataProcessor(required_fields=None)
+    site_data = processor._validate_and_clean_df(site_data)
+    trial_data = trial_data.copy()
+    
+    prompts = []
+    responses = []
+
+    
+    if mapping_data is None:
+        # simple matching: pair each trial with each site (can customize this)
+        for _, trial_row in trial_data.iterrows():
+            for _, site_row in site_data.iterrows():
+                prompt = f"""
+You are a clinical research specialist and expert in selecting sites for a new medical trial.
+
+Here is the trial information:
+- ID: {trial_row.get('nct_id', 'N/A')}
+- Title: {trial_row.get('brief_title', 'N/A')}
+- Phase: {trial_row.get('phase', 'N/A')}
+- Condition: {trial_row.get('condition', 'N/A')}
+- Eligibility Criteria: {trial_row.get('eligibility_criteria', 'N/A')}
+
+Here is the site information:
+- Site ID: {site_row.get('site_id')}
+- Location: {site_row.get('location_city')}, {site_row.get('location_state')}, {site_row.get('location_country')}
+- Specialty: {site_row.get('specialty')}
+- Capacity: {site_row.get('capacity')}
+- Experience (years): {site_row.get('experience_years')}
+- Enrollment Rate: {site_row.get('enrollment_rate')}
+
+Question: Is this site a suitable candidate for the trial?
+Respond "Yes" or "No" and briefly justify your answer.
+Answer:
+""".strip()
+                prompts.append(prompt)
+                responses.append("")
+
+    else:
+        # Use mapping to generate labels
+        for _, row in mapping_data.iterrows():
+            trial_row = trial_data[trial_data['nct_id'] == row['trial_id']].iloc[0]
+            site_row = site_data[site_data['site_id'] == row['site_id']].iloc[0]
+            label = row.get('enrollment', 1.0)
+
+            prompt = f"""
+You are a clinical research assistant selecting sites for a new medical trial.
+
+Trial Information:
+- ID: {trial_row.get('nct_id', 'N/A')}
+- Title: {trial_row.get('brief_title', 'N/A')}
+- Phase: {trial_row.get('phase', 'N/A')}
+- Condition: {trial_row.get('condition', 'N/A')}
+- Eligibility Criteria: {trial_row.get('eligibility_criteria', 'N/A')}
+
+Site Information:
+- Site ID: {site_row.get('site_id')}
+- Location: {site_row.get('location_city')}, {site_row.get('location_state')}, {site_row.get('location_country')}
+- Specialty: {site_row.get('specialty')}
+- Capacity: {site_row.get('capacity')}
+- Experience (years): {site_row.get('experience_years')}
+- Enrollment Rate: {site_row.get('enrollment_rate')}
+
+Question: Estimate the suitability score (1-10) of this site for the trial based on the information above.
+""".strip()
+
+            prompts.append(prompt)
+            responses.append(str(label) if include_labels else "")
+
+    output_df = pd.DataFrame({'prompt': prompts})
+    if include_labels:
+        output_df['response'] = responses
+    
+    return output_df
 
 # Testing
 if __name__ == "__main__":
