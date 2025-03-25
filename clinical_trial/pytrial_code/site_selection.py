@@ -7,8 +7,6 @@ import pandas as pd
 import numpy as np
 from torch.utils.data import Dataset, DataLoader
 import torch
-from collections import defaultdict
-from typing import List, Dict, Union, Optional, Tuple
 
 from preprocess_trial import TrialPreprocessor, TrialDataset
 
@@ -18,7 +16,7 @@ class SiteDataProcessor:
     This class loads and preprocesses site-related data for trial site selection.
     """
     
-    def __init__(self, required_fields):
+    def __init__(self, required_fields = None):
         """Initialize the site data processor.
         
         required_fields: list of required fields for sites selection data.
@@ -107,8 +105,8 @@ class SiteDataProcessor:
 
 
 class SiteBase(Dataset):
-    """Base dataset for site data.
-    
+    """
+    Base dataset for site data.
     data: pd.DataFrame or str
         DataFrame containing site data or path to data file
     """
@@ -121,6 +119,7 @@ class SiteBase(Dataset):
         if isinstance(data, str):
             self.df = self.processor.load_data(data)
         else:
+            # else we assume it's a dataframe
             self.df = data.copy()
         
         # convert to numeric features
@@ -132,7 +131,7 @@ class SiteBase(Dataset):
         numeric_cols = self.df.select_dtypes(include=['int64', 'float64']).columns.tolist()
         categorical_cols = self.df.select_dtypes(include=['object']).columns.tolist()
         
-        # one-hot encode categorical variables
+        # one-hot encode categorical variables, can have more advanced encoding later
         one_hot_df = pd.get_dummies(self.df[categorical_cols], drop_first=False)
         
         # normalize numeric variables
@@ -208,11 +207,7 @@ class TrialSiteDataset(Dataset):
     has_demographics: whether site data includes demographics
     """
     
-    def __init__(self, 
-                trial_data,
-                site_data,
-                mapping_data = None,
-                has_demographics = False):
+    def __init__(self, trial_data, site_data, mapping_data = None, has_demographics = False):
         """Initialize the dataset."""
         # load trial data
         if isinstance(trial_data, str):
@@ -311,6 +306,7 @@ class TrialSiteDataset(Dataset):
         numeric_cols = self.trial_df.select_dtypes(include=['int64', 'float64']).columns.tolist()
         categorical_cols = self.trial_df.select_dtypes(include=['object']).columns.tolist()
         
+        # some basic processing steps, can have more advanced processing later
         # Normalize numeric features
         for col in numeric_cols:
             if self.trial_df[col].std() > 0:
@@ -618,6 +614,7 @@ if __name__ == "__main__":
     print(f"Site batch shape: {batch['site'].shape}")
     print(f"Label batch shape: {batch['label'].shape}")
     print(f"Site mask shape: {batch['site_mask'].shape}")
+    print(f"Batch: {batch}")
     
     # Create dataloader with demographics
     dataloader_demo = create_site_selection_dataloader(
@@ -631,3 +628,4 @@ if __name__ == "__main__":
     batch_demo = next(iter(dataloader_demo))
     print("\nBatch with demographics keys:", batch_demo.keys())
     print(f"Demographic label shape: {batch_demo['eth_label'].shape}")
+    print(f"Batch: {batch_demo}")
