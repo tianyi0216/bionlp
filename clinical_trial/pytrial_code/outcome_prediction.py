@@ -45,9 +45,7 @@ class TrialOutcomeProcessor:
     
     def _process_outcome_labels(self, df):
         """Process outcome labels based on trial status.
-        
         df: trial data with status information
-            
         returns: data with processed outcome labels
         """
         # Map status to outcome labels
@@ -75,7 +73,6 @@ class TrialOutcomeProcessor:
         status_col = 'overall_status'
         if status_col not in df.columns and 'study_status' in df.columns:
             status_col = 'study_status'
-        
         if status_col in df.columns:
             # Convert status to lowercase for consistent mapping
             df[status_col] = df[status_col].str.lower()
@@ -95,20 +92,13 @@ class TrialOutcomeProcessor:
             df['outcome'] = None
             return df
     
-    def extract_text_features(self, df: pd.DataFrame, text_columns: List[str] = None) -> pd.DataFrame:
+    def extract_text_features(self, df, text_columns = None) -> pd.DataFrame:
         """Extract and preprocess text features for outcome prediction.
         
-        Parameters
-        ----------
-        df : pd.DataFrame
-            Trial data
-        text_columns : List[str], optional
-            Columns containing text to be processed
+        df: trial data
+        text_columns: list of columns containing text to be processed
             
-        Returns
-        -------
-        pd.DataFrame
-            Data with processed text features
+        returns: Data with processed text features
         """
         if text_columns is None:
             text_columns = ['brief_title', 'brief_summary', 'detailed_description', 'eligibility_criteria']
@@ -132,25 +122,16 @@ class TrialOutcomeProcessor:
         
         return df
     
-    def preprocess_for_model(self, df: pd.DataFrame, categorical_cols: List[str] = None, 
-                            numeric_cols: List[str] = None, text_cols: List[str] = None) -> Dict:
+    def preprocess_for_model(self, df, categorical_cols = None, numeric_cols = None, text_cols = None) -> Dict:
         """Preprocess data for model training and prediction.
         
-        Parameters
-        ----------
-        df : pd.DataFrame
-            Trial data
-        categorical_cols : List[str], optional
-            Categorical columns to encode
-        numeric_cols : List[str], optional
-            Numeric columns to scale
-        text_cols : List[str], optional
-            Text columns to process
+        df: trial data
+        categorical_cols: list of categorical columns to encode
+        numeric_cols: list of numeric columns to scale
+        text_cols: list of text columns to process
+        numeric_cols : list of numeric columns to scale
             
-        Returns
-        -------
-        Dict
-            Preprocessed data and preprocessing objects
+        returns: Preprocessed data and preprocessing objects
         """
         # Set default columns if none provided
         if categorical_cols is None:
@@ -173,9 +154,8 @@ class TrialOutcomeProcessor:
         cat_features = []
         for col in categorical_cols:
             if col in df.columns:
-                # For simplicity, we'll use a basic approach
+                # here is a basic approach to encoding categorical features
                 if df[col].dtype == 'object':
-                    # Fix: Use sparse_output instead of sparse for newer scikit-learn versions
                     encoder = OneHotEncoder(sparse_output=False, handle_unknown='ignore')
                     encoded = encoder.fit_transform(df[[col]])
                     
