@@ -3,7 +3,6 @@ import pandas as pd
 import json
 import xml.etree.ElementTree as ET
 from torch.utils.data import Dataset, DataLoader
-from typing import List, Dict, Union, Optional
 
 class TrialPreprocessor:
     """General-purpose clinical trial data preprocessor. 
@@ -245,22 +244,11 @@ class TrialPreprocessor:
         
         return df
     
-    def preprocess(self, 
-                  df,
-                  extract_criteria: bool = True):
+    def preprocess(self, df, extract_criteria = True):
         """Preprocess trial data.
-        
-        Parameters
-        ----------
-        df : pd.DataFrame
-            Input DataFrame
-        extract_criteria : bool, optional
-            Whether to extract inclusion/exclusion criteria
-            
-        Returns
-        -------
-        pd.DataFrame
-            Preprocessed DataFrame
+        df : Input DataFrame
+        extract_criteria : Whether to extract inclusion/exclusion criteria
+        returns: Preprocessed DataFrame
         """
         # Process eligibility criteria if needed
         if extract_criteria and 'eligibility_criteria' in df.columns:
@@ -274,8 +262,7 @@ class TrialPreprocessor:
     def _split_criteria(self, criteria):
         """Split eligibility criteria into inclusion and exclusion.
         criteria: raw eligibility criteria text
-        returns: tuple
-            (inclusion_criteria, exclusion_criteria)
+        returns: tuple of inclusion and exclusion criteria
         """
         if not criteria or criteria == "none":
             return [], []
@@ -321,10 +308,7 @@ class TrialDataset(Dataset):
     extract_criteria: whether to extract inclusion/exclusion criteria
     """
     
-    def __init__(self, 
-                data,
-                fields=None,
-                extract_criteria=True):
+    def __init__(self, data, fields=None, extract_criteria=True):
         """Initialize the dataset."""
         self.preprocessor = TrialPreprocessor(required_fields=fields)
         
@@ -358,13 +342,10 @@ class TrialDataset(Dataset):
 class TrialDataCollator:
     """Collate function for batching trial data.
     
-    Parameters
-    ----------
-    fields : List[str], optional
-        List of fields to include in the batch
+    fields : List of fields to include in the batch
     """
     
-    def __init__(self, fields: List[str] = None):
+    def __init__(self, fields = None):
         """Initialize the collator."""
         self.fields = fields
     
@@ -384,11 +365,7 @@ class TrialDataCollator:
         return batch
 
 
-def trial_dataloader(data,
-                           batch_size=32,
-                           fields=None,
-                           extract_criteria=True,
-                           shuffle=False) -> DataLoader:
+def trial_dataloader(data, batch_size=32, fields=None, extract_criteria=True, shuffle=False):
     """Create a DataLoader for trial data.
     
     data: DataFrame containing trial data or path to data file
@@ -397,7 +374,6 @@ def trial_dataloader(data,
     extract_criteria: whether to extract inclusion/exclusion criteria
     shuffle: whether to shuffle the data
     returns: DataLoader
-        DataLoader for trial data
     """
     dataset = TrialDataset(data, fields=fields, extract_criteria=extract_criteria)
     collator = TrialDataCollator(fields=fields)
@@ -484,3 +460,4 @@ if __name__ == "__main__":
     batch = next(iter(dataloader))
     print(f"Batch keys: {batch.keys()}")
     print(f"First trial title: {batch['brief_title'][0]}")
+    print(f"First batch: {batch}")
