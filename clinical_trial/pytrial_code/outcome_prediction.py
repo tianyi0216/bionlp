@@ -3,8 +3,6 @@ import pandas as pd
 import numpy as np
 import torch
 from torch.utils.data import Dataset, DataLoader
-from typing import List, Dict, Union, Optional, Tuple
-from collections import defaultdict
 from sklearn.preprocessing import StandardScaler, OneHotEncoder
 from sklearn.model_selection import train_test_split
 
@@ -17,8 +15,8 @@ class TrialOutcomeProcessor:
     """
     
     def __init__(self, required_fields = None):
-        """Initialize the trial outcome processor.
-        
+        """
+        Initialize the trial outcome processor.
         required_fields: Required fields for outcome prediction
         """
         if required_fields is None:
@@ -31,16 +29,13 @@ class TrialOutcomeProcessor:
             self.required_fields = required_fields
     
     def load_data(self, file_path):
-        """Load trial data from file.
-        
+        """
+        Load trial data from file.
         file_path: path to trial data file
-            
         returns: processed trial data
         """
-        # Use the TrialPreprocessor for loading and basic processing
         preprocessor = TrialPreprocessor(required_fields=self.required_fields)
         df = preprocessor.load_data(file_path)
-        
         return self._process_outcome_labels(df)
     
     def _process_outcome_labels(self, df):
@@ -48,12 +43,12 @@ class TrialOutcomeProcessor:
         df: trial data with status information
         returns: data with processed outcome labels
         """
-        # Map status to outcome labels
+        # map status to outcome labels (simple binary classification here, can be extended to multi-class/more complicated studies)
         # 0: Failed/Terminated, 1: Completed/Successful
         status_map = {
             'completed': 1,
             'completed with results': 1,
-            'active': None,  # Active trials don't have outcomes yet
+            'active': None,  
             'recruiting': None,
             'not yet recruiting': None,
             'enrolling by invitation': None,
@@ -92,12 +87,11 @@ class TrialOutcomeProcessor:
             df['outcome'] = None
             return df
     
-    def extract_text_features(self, df, text_columns = None) -> pd.DataFrame:
-        """Extract and preprocess text features for outcome prediction.
-        
+    def extract_text_features(self, df, text_columns = None):
+        """
+        Extract and preprocess text features for outcome prediction.
         df: trial data
-        text_columns: list of columns containing text to be processed
-            
+        text_columns: list of columns containing text to be processed 
         returns: Data with processed text features
         """
         if text_columns is None:
@@ -110,30 +104,35 @@ class TrialOutcomeProcessor:
             print("Warning: No text columns found for processing.")
             return df
         
-        # Create combined text field
+        # create combined text field
         df['combined_text'] = df[available_columns].apply(
             lambda row: ' '.join([str(text) for text in row if text not in [None, 'none', '']]), 
             axis=1
         )
         
-        # Extract simple text features (as a demonstration)
+        # extract simple text features (as a demonstration)
         df['text_length'] = df['combined_text'].str.len()
         df['word_count'] = df['combined_text'].str.split().str.len()
         
         return df
     
-    def preprocess_for_model(self, df, categorical_cols = None, numeric_cols = None, text_cols = None) -> Dict:
-        """Preprocess data for model training and prediction.
-        
+    def preprocess_for_model(self, df, categorical_cols = None, numeric_cols = None, text_cols = None):
+        """
+        Preprocess data for model training and prediction.
         df: trial data
         categorical_cols: list of categorical columns to encode
         numeric_cols: list of numeric columns to scale
         text_cols: list of text columns to process
-        numeric_cols : list of numeric columns to scale
-            
         returns: Preprocessed data and preprocessing objects
         """
-        # Set default columns if none provided
+        # Ensure df is a DataFrame
+        if not isinstance(df, pd.DataFrame):
+            raise ValueError("Input must be a pandas DataFrame")
+            
+        # Make a copy to avoid modifying the original
+        df = df.copy()
+        
+        # set default columns if none provided
         if categorical_cols is None:
             categorical_cols = ['phase', 'condition']
         
@@ -141,65 +140,60 @@ class TrialOutcomeProcessor:
             numeric_cols = ['text_length', 'word_count']
         
         if text_cols is None:
-            text_cols = ['brief_title', 'brief_summary', 'detailed_description', 'eligibility_criteria']
+            text_cols = ['brief_title', 'brief_summary']
         
-        # Process text features
-        df = self.extract_text_features(df, text_cols)
+        # process text features if any text columns exist
+        available_text_cols = [col for col in text_cols if col in df.columns]
+        if available_text_cols:
+            df = self.extract_text_features(df, available_text_cols)
         
-        # Prepare feature transformers
+        # prepare feature transformers
         categorical_processor = {}
         numeric_processor = {}
         
-        # Process categorical features
+        # process categorical features
         cat_features = []
         for col in categorical_cols:
             if col in df.columns:
-                # here is a basic approach to encoding categorical features
                 if df[col].dtype == 'object':
                     encoder = OneHotEncoder(sparse_output=False, handle_unknown='ignore')
                     encoded = encoder.fit_transform(df[[col]])
-                    
-                    # Store the encoder for later use
                     categorical_processor[col] = encoder
-                    
-                    # Create feature names
                     feature_names = [f"{col}_{cat}" for cat in encoder.categories_[0]]
-                    
-                    # Convert to DataFrame
                     encoded_df = pd.DataFrame(encoded, columns=feature_names, index=df.index)
                     cat_features.append(encoded_df)
         
-        # Combine all categorical features
+        # combine categorical features
         if cat_features:
             cat_features_df = pd.concat(cat_features, axis=1)
         else:
             cat_features_df = pd.DataFrame(index=df.index)
         
-        # Process numeric features
+        # process numeric features
         num_features = []
         for col in numeric_cols:
             if col in df.columns:
                 if pd.api.types.is_numeric_dtype(df[col]):
                     scaler = StandardScaler()
                     scaled = scaler.fit_transform(df[[col]])
-                    
-                    # Store the scaler
                     numeric_processor[col] = scaler
-                    
-                    # Create DataFrame
                     scaled_df = pd.DataFrame(scaled, columns=[col], index=df.index)
                     num_features.append(scaled_df)
         
-        # Combine all numeric features
+        # combine numeric features
         if num_features:
             num_features_df = pd.concat(num_features, axis=1)
         else:
             num_features_df = pd.DataFrame(index=df.index)
         
-        # Combine all features
+        # combine all features
         features_df = pd.concat([cat_features_df, num_features_df], axis=1)
         
-        # Extract labels
+        # Ensure we have the outcome column
+        if 'outcome' not in df.columns:
+            raise ValueError("DataFrame must contain an 'outcome' column")
+            
+        # extract labels
         labels = df['outcome'].values
         
         return {
@@ -212,20 +206,14 @@ class TrialOutcomeProcessor:
 
 
 class TrialOutcomeDataset(Dataset):
-    """Dataset for trial outcome prediction.
-    
-    Parameters
-    ----------
-    data : pd.DataFrame or str
-        DataFrame containing trial data or path to trial data file
-    categorical_cols : List[str], optional
-        Categorical columns to encode
-    numeric_cols : List[str], optional
-        Numeric columns to scale
-    text_cols : List[str], optional
-        Text columns to process
-    test_size : float, optional
-        Proportion of the dataset to include in the test split
+    """
+    Dataset for trial outcome prediction.
+    data : DataFrame containing trial data or path to trial data file
+    categorical_cols : Categorical columns to encode
+    numeric_cols : Numeric columns to scale
+    text_cols : Text columns to process
+    test_size : Proportion of the dataset to include in the test split
+    random_state : Random state for reproducibility
     """
     
     def __init__(self, data, 
@@ -241,10 +229,10 @@ class TrialOutcomeDataset(Dataset):
         if isinstance(data, str):
             self.df = self.processor.load_data(data)
         else:
+            # If data is a DataFrame, just copy it
             self.df = data.copy()
-            self.df = self.processor.preprocess_for_model(self.df, categorical_cols, numeric_cols, text_cols)
         
-        # Process data for model
+        # Process data for model once
         processed_data = self.processor.preprocess_for_model(
             self.df, categorical_cols, numeric_cols, text_cols
         )
@@ -292,8 +280,8 @@ class TrialOutcomeDataset(Dataset):
 
 
 class TrialOutcomeSubset(Dataset):
-    """Subset of TrialOutcomeDataset for train/test splitting.
-    
+    """
+    Subset of TrialOutcomeDataset for train/test splitting.
     dataset: The original dataset
     indices: Indices to include in the subset
     """
@@ -333,14 +321,14 @@ class TrialOutcomeCollator:
 
 
 def create_outcome_prediction_dataloader(
-    data: Union[pd.DataFrame, str],
-    batch_size: int = 32,
-    categorical_cols: List[str] = None,
-    numeric_cols: List[str] = None,
-    text_cols: List[str] = None,
-    test_size: float = 0.2,
-    random_state: int = 42,
-    shuffle: bool = True
+    data,
+    batch_size = 32,
+    categorical_cols = None,
+    numeric_cols = None,
+    text_cols = None,
+    test_size = 0.2,
+    random_state = 42,
+    shuffle = True
 ):
     """Create DataLoaders for trial outcome prediction.
     
@@ -492,20 +480,40 @@ Answer:
 
 # Example usage
 if __name__ == "__main__":
-    # Sample trial data
+    # Sample trial data with more examples
     trial_data = pd.DataFrame({
-        'nct_id': ['NCT001', 'NCT002', 'NCT003', 'NCT004', 'NCT005'],
-        'brief_title': ['Study 1', 'Study 2', 'Study 3', 'Study 4', 'Study 5'],
-        'brief_summary': [
-            'A study of drug X for diabetes',
-            'Evaluation of drug Y for hypertension',
-            'Testing therapy Z for asthma',
-            'Analysis of treatment W for arthritis',
-            'Research on drug V for depression'
+        'nct_id': [f'NCT00{i}' for i in range(1, 11)],
+        'brief_title': [
+            'Study of Drug X for Diabetes Treatment',
+            'Evaluation of Drug Y for Hypertension',
+            'Testing Therapy Z for Asthma Control',
+            'Analysis of Treatment W for Arthritis Pain',
+            'Research on Drug V for Depression',
+            'Study of Drug A for Diabetes Management',
+            'Trial of Drug B for Blood Pressure',
+            'Investigation of Therapy C for Asthma',
+            'Testing of Treatment D for Joint Pain',
+            'Evaluation of Drug E for Depression'
         ],
-        'phase': ['Phase 1', 'Phase 2', 'Phase 3', 'Phase 2', 'Phase 1'],
-        'condition': ['Diabetes', 'Hypertension', 'Asthma', 'Arthritis', 'Depression'],
-        'overall_status': ['Completed', 'Terminated', 'Completed', 'Withdrawn', 'Completed']
+        'brief_summary': [
+            'A study investigating the efficacy of Drug X in patients with type 2 diabetes.',
+            'This trial evaluates the effect of Drug Y on blood pressure in hypertensive patients.',
+            'A clinical trial testing if Therapy Z improves lung function in asthma patients.',
+            'Research examining whether Treatment W reduces joint pain in arthritis patients.',
+            'A study of Drug V for treating major depressive disorder.',
+            'Investigation of Drug A effectiveness in diabetes treatment.',
+            'Study of Drug B effects on hypertension management.',
+            'Research on Therapy C for asthma symptom control.',
+            'Analysis of Treatment D in reducing arthritis symptoms.',
+            'Trial of Drug E in depression treatment.'
+        ],
+        'phase': ['Phase 1', 'Phase 2', 'Phase 3', 'Phase 2', 'Phase 1',
+                 'Phase 2', 'Phase 3', 'Phase 2', 'Phase 1', 'Phase 2'],
+        'condition': ['Diabetes', 'Hypertension', 'Asthma', 'Arthritis', 'Depression',
+                     'Diabetes', 'Hypertension', 'Asthma', 'Arthritis', 'Depression'],
+        'overall_status': ['Completed', 'Terminated', 'Completed', 'Withdrawn', 'Completed',
+                          'Completed', 'Terminated', 'Completed', 'Withdrawn', 'Completed'],
+        'outcome': [1, 0, 1, 0, 1, 1, 0, 1, 0, 1]
     })
     
     print("Creating trial outcome dataset and dataloaders...")
