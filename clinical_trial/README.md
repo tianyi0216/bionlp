@@ -41,4 +41,55 @@ The `selected_fields` is a comma separated list of fields to be selected from th
 
 The `path_to_trec_data` is the path to the TREC clinical trial data directory. 
 
+# Clinical Trial Codes Referencing PyTrial
+
+We have some useful raw codes from PyTrial at the directory `pytrial_code/source_code`. 
+
+## Basic Data Preprocessing
+
+`trec_util.py` contains code that parses the TREC clinical trial data and save it as a csv file for future use.
+
+`trail_download.py` contains code that downloads the clinical trial data from the ClinicalTrials.gov and save it as a csv file for future use. 
+
+How to use the `trial_download.py` code:
+
+```python
+from trial_download import ClinicalTrialDownloader
+
+# initialize the downloader
+downloader = ClinicalTrialDownloader()
+# give some query to the downloader
+trials = downloader.query_studies(
+    search_expr='COVID-19',
+    fields=['NCTId', 'BriefTitle', 'OverallStatus'],
+    max_studies=5
+)
+# get full study data
+full_data = downloader.get_full_studies(
+    search_expr='COVID-19',
+    max_studies=5
+)
+# download bulk data (optional)
+downloader.download_data(date='20240101')
+```
+
+# PyTrial Tasks
+
+We also have some useful codes for each of the tasks in PyTrial.
+
+## Outcome Prediction
+
+The `pytrial_code/outcome_prediction.py` file contains code that predicts the outcome of a clinical trial.
+
+## Site Selection
+
+The `pytrial_code/site_selection.py` file contains code that selects the sites for a clinical trial.
+
+## Trial Search
+
+The `pytrial_code/trial_search.py` file contains code that searches for a clinical trial.
+
+Each file contains code that process the data from various format and create a pytorch dataset and dataloader for the task. 
+
+We also provide a function to integrate LLM into each tasks, by converting the dataset into text data that can be inputed into the LLM, and pre-written prompts to guide the LLM to generate the desired output. 
 
