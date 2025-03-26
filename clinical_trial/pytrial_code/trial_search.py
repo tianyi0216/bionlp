@@ -18,22 +18,15 @@ class TrialSearchProcessor:
     """Processor for preparing clinical trial data for search tasks.
     
     This class handles the preprocessing of trial data to make it suitable for search operations.
-    It focuses on cleaning text fields, creating combined representations, and preparing
-    categorical fields for filtering.
-    
-    Parameters
-    ----------
-    text_fields : List[str], optional
-        Fields to use for text search
-    filter_fields : List[str], optional
-        Fields that can be used for filtering
+    It focuses on cleaning text fields, creating combined representations, and preparing categorical fields for filtering.
+
+    text_fields : Fields to use for text search
+    filter_fields : Fields that can be used for filtering
     """
     
-    def __init__(self, 
-                text_fields: List[str] = None,
-                filter_fields: List[str] = None):
+    def __init__(self, text_fields = None, filter_fields = None):
         """Initialize the processor."""
-        # Set fields to search and filter on
+        # fields to search and filter on
         if text_fields is None:
             self.text_fields = ['brief_title', 'brief_summary', 'detailed_description', 'eligibility_criteria']
         else:
@@ -44,92 +37,62 @@ class TrialSearchProcessor:
         else:
             self.filter_fields = filter_fields
     
-    def process_data(self, data: Union[pd.DataFrame, str]) -> pd.DataFrame:
+    def process_data(self, data):
         """Process trial data for search.
-        
-        Parameters
-        ----------
-        data : pd.DataFrame or str
-            DataFrame containing trial data or path to trial data file
-            
-        Returns
-        -------
-        pd.DataFrame
-            Processed data ready for search
+        data :  DataFrame containing trial data or path to trial data file
+        returns: Processed data ready for search
         """
-        # Load data if a file path is provided
+        # load data if a file path is provided, else assume it's a dataframe
         if isinstance(data, str):
             preprocessor = TrialPreprocessor()
             df = preprocessor.load_data(data)
         else:
             df = data.copy()
         
-        # Process text fields
+        # process text fields
         df = self._process_text_fields(df)
-        
-        # Process filter fields
+        # process filter fields
         df = self._process_filter_fields(df)
-        
-        # Extract keywords and n-grams
+        # extract keywords and n-grams
         df = self._extract_keywords(df)
-        
         return df
     
-    def _process_text_fields(self, df: pd.DataFrame) -> pd.DataFrame:
-        """Process text fields for search.
-        
-        Parameters
-        ----------
-        df : pd.DataFrame
-            Input DataFrame
-            
-        Returns
-        -------
-        pd.DataFrame
-            DataFrame with processed text fields
+    def _process_text_fields(self, df):
         """
-        # Ensure all text fields are string type
+        Process text fields for search.
+        df : Input DataFrame
+        returns: DataFrame with processed text fields
+        """
+        # make sure all text fields are strings
         for field in self.text_fields:
             if field in df.columns:
                 df[field] = df[field].fillna('').astype(str)
         
-        # Create combined text field for easier searching
+        # create combined text field for easier searching
         df['combined_text'] = df[self.text_fields].apply(
             lambda row: ' '.join([str(text) for text in row if text not in [None, 'none', '']]), 
             axis=1
         )
-        
-        # Create lowercase version for case-insensitive search
         df['combined_text_lower'] = df['combined_text'].str.lower()
-        
         return df
     
-    def _process_filter_fields(self, df: pd.DataFrame) -> pd.DataFrame:
+    def _process_filter_fields(self, df):
         """Process categorical fields for filtering.
         
-        Parameters
-        ----------
-        df : pd.DataFrame
-            Input DataFrame
-            
-        Returns
-        -------
-        pd.DataFrame
-            DataFrame with processed filter fields
+        df : Input DataFrame
+        returns: DataFrame with processed filter fields
         """
         # Prepare filter fields
         for field in self.filter_fields:
             if field in df.columns:
                 df[field] = df[field].fillna('').astype(str)
-                
-                # Create standardized lowercase version for case-insensitive filtering
                 df[f"{field}_lower"] = df[field].str.lower()
         
-        # Extract unique filter values for each field
+        # extract unique filter values for each field
         filter_values = {}
         for field in self.filter_fields:
             if field in df.columns:
-                # For multi-value fields (comma-separated), split and get unique values
+                # for multi-value fields (comma-separated), split and get unique values
                 all_values = []
                 for val in df[field]:
                     if ',' in val:
@@ -139,82 +102,65 @@ class TrialSearchProcessor:
                 
                 filter_values[field] = sorted(list(set([v for v in all_values if v])))
         
-        # Store filter values as metadata
+        # store filter values as metadata
         df.attrs['filter_values'] = filter_values
-        
         return df
     
-    def _extract_keywords(self, df: pd.DataFrame) -> pd.DataFrame:
+    def _extract_keywords(self, df):
         """Extract keywords and n-grams from text fields.
         
-        Parameters
-        ----------
-        df : pd.DataFrame
-            Input DataFrame
-            
-        Returns
-        -------
-        pd.DataFrame
-            DataFrame with extracted keywords
+        df : Input DataFrame
+        returns: DataFrame with extracted keywords
         """
-        # Extract important words from titles and conditions
+        # get important words from titles and conditions
         if 'brief_title' in df.columns:
-            # Extract words from titles using regex pattern for meaningful words (3+ chars)
+            # extract words from titles using regex pattern for meaningful words (3+ chars)
             df['title_keywords'] = df['brief_title'].apply(
                 lambda x: ' '.join(re.findall(r'\b[a-zA-Z]{3,}\b', x.lower()))
             )
         
         if 'condition' in df.columns:
-            # Process condition field to extract keywords
+            # get condition keywords using regex pattern for meaningful words (3+ chars)
             df['condition_keywords'] = df['condition'].apply(
                 lambda x: ' '.join(re.findall(r'\b[a-zA-Z]{3,}\b', x.lower()))
             )
             
-        # Create bigrams from combined text (could be useful for phrase matching)
+        # get bigrams from combined text (could be useful for phrase matching)
         if 'combined_text_lower' in df.columns:
             def extract_bigrams(text):
+                # for bigrams, we do this by joining two words
                 words = re.findall(r'\b[a-zA-Z]{3,}\b', text)
                 return [' '.join(words[i:i+2]) for i in range(len(words)-1)]
             
             df['text_bigrams'] = df['combined_text_lower'].apply(
                 lambda x: ' '.join(extract_bigrams(x))
             )
-        
         return df
-
 
 class TrialSearchDataset(Dataset):
     """Dataset for trial search tasks.
     
     This dataset prepares clinical trial data for search and retrieval tasks.
     
-    Parameters
-    ----------
-    data : pd.DataFrame or str
-        DataFrame containing trial data or path to trial data file
-    text_fields : List[str], optional
-        Fields to use for text search
-    filter_fields : List[str], optional
-        Fields that can be used for filtering
+    data : dataFrame containing trial data or path to trial data file
+    text_fields : fields to use for text search
+    filter_fields : fields that can be used for filtering
     """
     
-    def __init__(self, 
-                data: Union[pd.DataFrame, str],
-                text_fields: List[str] = None,
-                filter_fields: List[str] = None):
+    def __init__(self, data, text_fields = None, filter_fields = None):
         """Initialize the dataset."""
-        # Process data
+        # process data
         self.processor = TrialSearchProcessor(
             text_fields=text_fields,
             filter_fields=filter_fields
         )
         self.data = self.processor.process_data(data)
         
-        # Extract field information
+        # extract field information
         self.text_fields = self.processor.text_fields
         self.filter_fields = self.processor.filter_fields
         
-        # Get filter values
+        # get filter values
         self.filter_values = self.data.attrs.get('filter_values', {})
     
     def __len__(self):
@@ -233,70 +179,49 @@ class TrialSearchDataset(Dataset):
         
         return item
     
-    def get_filter_values(self, field: str) -> List[str]:
-        """Get all possible values for a filter field.
-        
-        Parameters
-        ----------
-        field : str
-            The filter field name
-            
-        Returns
-        -------
-        List[str]
-            List of unique values for the field
+    def get_filter_values(self, field):
+        """
+        Get all possible values for a filter field.
+        field : str filter field name
+        returns: List of unique values for the field
         """
         return self.filter_values.get(field, [])
     
-    def filter_by_criteria(self, criteria: Dict[str, Union[str, List[str]]]) -> pd.DataFrame:
+    def filter_by_criteria(self, criteria):
         """Filter the dataset by specified criteria.
         
-        Parameters
-        ----------
-        criteria : Dict[str, Union[str, List[str]]]
-            Dictionary mapping field names to values or lists of values
-            
-        Returns
-        -------
-        pd.DataFrame
-            Filtered data
+        criteria : the dictionary of fields and values to filter by
+        returns: Filtered data
         """
         filtered_data = self.data.copy()
         
         for field, values in criteria.items():
             if field in filtered_data.columns:
-                # Convert single value to list
+                # convert single value to list
                 if isinstance(values, str):
                     values = [values]
                 
-                # Use lowercase version if available
+                # use lowercase version if available
                 search_field = f"{field}_lower" if f"{field}_lower" in filtered_data.columns else field
                 
-                # Handle each value as a separate filter (OR condition)
+                # handle each value as a separate filter (OR condition)
                 matches = np.zeros(len(filtered_data), dtype=bool)
                 for value in values:
                     value_lower = value.lower()
                     matches |= filtered_data[search_field].str.contains(value_lower, regex=False, na=False)
                 
-                # Apply filter
+                # apply filter
                 filtered_data = filtered_data[matches]
         
         return filtered_data
     
-    def search_by_text(self, query: str, fields: List[str] = None) -> pd.DataFrame:
-        """Simple text-based search across specified fields.
-        
-        Parameters
-        ----------
-        query : str
-            Text query to search for
-        fields : List[str], optional
-            Fields to search in (defaults to combined_text_lower)
-            
-        Returns
-        -------
-        pd.DataFrame
-            Matching data
+    def search_by_text(self, query, fields = None):
+        """
+        Simple text-based search across specified fields.
+        To be adding more sophisticated search methods in the future.
+        query : Text query to search for
+        fields : fields to search in (defaults to combined_text_lower)
+        returns: Matching data
         """
         if not query:
             return self.data
@@ -320,20 +245,15 @@ class TrialSearchCollator:
     This collator prepares batches of trial data, including tokenization
     of text fields for models that use tokenized inputs.
     
-    Parameters
-    ----------
-    model_name : str, optional
-        Transformer model name for tokenization
-    max_seq_length : int, optional
-        Maximum sequence length for tokenization
-    fields : List[str], optional
-        Fields to tokenize
+    model_name : Transformer model name for tokenization
+    max_seq_length : Maximum sequence length for tokenization
+    fields : fields to tokenize
     """
     
     def __init__(self,
-        model_name: str = "bert-base-uncased",
-        max_seq_length: int = 512,
-        fields: List[str] = None):
+        model_name = "bert-base-uncased",
+        max_seq_length = 512,
+        fields = None):
         """Initialize the collator."""
         if not TRANSFORMERS_AVAILABLE:
             raise ImportError("Transformers package is required for tokenization. Install with `pip install transformers`.")
@@ -363,19 +283,11 @@ class TrialSearchCollator:
         return return_dict
 
     def _batch_tokenize(self, batch_df, fields):
-        """Tokenize a batch of text.
-        
-        Parameters
-        ----------
+        """
+        Tokenize a batch of text.
         batch_df : pd.DataFrame
-            Batch data
         fields : List[str]
-            Fields to tokenize
-            
-        Returns
-        -------
-        Dict
-            Dictionary of tokenized fields
+        returns: Dictionary of tokenized fields
         """
         return_dict = {}
         for field in fields:
@@ -393,37 +305,24 @@ class TrialSearchCollator:
 
 
 def create_trial_search_dataloader(
-    data: Union[pd.DataFrame, str],
-    batch_size: int = 32,
-    text_fields: List[str] = None,
-    filter_fields: List[str] = None,
-    model_name: str = "bert-base-uncased",
-    max_seq_length: int = 512,
-    shuffle: bool = False
-) -> Tuple[DataLoader, TrialSearchDataset]:
+    data,
+    batch_size = 32,
+    text_fields = None,
+    filter_fields = None,
+    model_name = "bert-base-uncased",
+    max_seq_length = 512,
+    shuffle = False
+):
     """Create a DataLoader for trial search tasks.
     
-    Parameters
-    ----------
-    data : pd.DataFrame or str
-        DataFrame containing trial data or path to trial data file
-    batch_size : int, optional
-        Batch size
-    text_fields : List[str], optional
-        Fields to use for text search
-    filter_fields : List[str], optional
-        Fields that can be used for filtering
-    model_name : str, optional
-        Transformer model name for tokenization
-    max_seq_length : int, optional
-        Maximum sequence length for tokenization
-    shuffle : bool, optional
-        Whether to shuffle the data
-        
-    Returns
-    -------
-    Tuple[DataLoader, TrialSearchDataset]
-        DataLoader and the underlying Dataset
+    data : DataFrame containing trial data or path to trial data file
+    batch_size : batch size
+    text_fields : fields to use for text search
+    filter_fields : fields that can be used for filtering
+    model_name : Transformer model name for tokenization
+    max_seq_length : Maximum sequence length for tokenization
+    shuffle : Whether to shuffle the data
+    returns: DataLoader and the underlying Dataset
     """
     # Create dataset
     dataset = TrialSearchDataset(
@@ -540,39 +439,42 @@ if __name__ == "__main__":
         'phase': ['Phase 2', 'Phase 3', 'Phase 2', 'Phase 3', 'Phase 2'],
         'overall_status': ['Completed', 'Recruiting', 'Completed', 'Terminated', 'Completed']
     })
+
+    text_fields = ['brief_title', 'brief_summary', 'condition', 'intervention_name', 'phase', 'overall_status']
     
     print("Creating trial search dataset...")
     
     # Process data for search
-    dataset = TrialSearchDataset(trial_data)
+    dataset = TrialSearchDataset(trial_data, text_fields=text_fields)
     
-    # Example 1: Search by text
-    print("\nExample 1: Search for 'diabetes'")
+    # test 1, search by text
+    print("\nTest 1: Search for 'diabetes'")
     results = dataset.search_by_text('diabetes')
     print(results[['nct_id', 'brief_title']])
     
-    # Example 2: Filter by criteria
-    print("\nExample 2: Filter for Phase 2 trials with 'Completed' status")
+    # test 2, filter by criteria
+    print("\nTest 2: Filter for Phase 2 trials with 'Completed' status")
     results = dataset.filter_by_criteria({
         'phase': 'Phase 2', 
         'overall_status': 'Completed'
     })
     print(results[['nct_id', 'brief_title', 'phase', 'overall_status']])
     
-    # Example 3: Get filter values
-    print("\nExample 3: Get all available conditions")
+    # test 3, get filter values
+    print("\nTest 3: Get all available conditions")
     conditions = dataset.get_filter_values('condition')
     print(conditions)
     
-    # Example 4: Create dataloader
-    print("\nExample 4: Creating dataloader")
+    # test 4, create dataloader
+    print("\nTest 4: Creating dataloader")
     dataloader, _ = create_trial_search_dataloader(
         data=trial_data,
-        batch_size=2
+        batch_size=2,
+        text_fields=text_fields
     )
     
-    # Get a batch
-    print("\nExample 5: Get a batch from dataloader")
+    # test 5, get a batch from dataloader
+    print("\nTest 5: Get a batch from dataloader")
     batch = next(iter(dataloader))
     print(f"Batch keys: {batch.keys()}")
     print(f"NCT IDs in batch: {batch['nct_id']}")
