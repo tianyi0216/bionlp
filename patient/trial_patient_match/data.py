@@ -2,7 +2,7 @@ import pdb
 from collections import defaultdict
 
 from ..patient_data import SequencePatientBase
-from clinical_trial.pytrial_code/source_code.trial_data import TrialDatasetBase
+from ...clinical_trial.pytrial_code.source_code.trial_data import TrialDatasetBase
 from ..patient_data import SeqPatientCollator
 
 class PatientData(SequencePatientBase):
