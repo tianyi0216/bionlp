@@ -43,8 +43,6 @@ The `path_to_trec_data` is the path to the TREC clinical trial data directory.
 
 # Clinical Trial Codes Referencing PyTrial
 
-We have some useful raw codes from PyTrial at the directory `pytrial_code/source_code`. 
-
 ## Basic Data Preprocessing
 
 `trec_util.py` contains code that parses the TREC clinical trial data and save it as a csv file for future use.
@@ -79,17 +77,21 @@ We also have some useful codes for each of the tasks in PyTrial.
 
 ## Outcome Prediction
 
-The `pytrial_code/outcome_prediction.py` file contains code that predicts the outcome of a clinical trial.
+The `outcome_prediction.py` file contains code that predicts the outcome of a clinical trial.
 
 ## Site Selection
 
-The `pytrial_code/site_selection.py` file contains code that selects the sites for a clinical trial.
+The `site_selection.py` file contains code that selects the sites for a clinical trial.
 
 ## Trial Search
 
-The `pytrial_code/trial_search.py` file contains code that searches for a clinical trial.
+The `trial_search.py` file contains code that searches for a clinical trial.
 
 Each file contains code that process the data from various format and create a pytorch dataset and dataloader for the task. 
 
 We also provide a function to integrate LLM into each tasks, by converting the dataset into text data that can be inputed into the LLM, and pre-written prompts to guide the LLM to generate the desired output. 
+
+## Reference
+
+We have some useful raw codes that were referenced from PyTrial at the directory `pytrial_code/source_code`. 
 
