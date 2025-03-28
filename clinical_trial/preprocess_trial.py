@@ -398,9 +398,70 @@ def add_llm_text_data(dataset, columns):
     for i, row in enumerate(dataset.itertuples()):
         llm_text = f"Here is a description of a trial: {row.nct_id}\n"
         for column in columns:
-            llm_text += f"{column}: {getattr(row, column)}\n"
+            # Format column name for better readability
+            column_name = column.replace('_', ' ').title()
+            llm_text += f"{column_name}: {getattr(row, column)}\n"
         dataset.at[i, 'llm_text'] = llm_text
     return dataset
+
+def create_llm_dataset_for_trial(data, columns=None, question=None, include_labels=True, label_column=None, prompt_template=None):
+    """
+    Create a dataset for LLM training by generating natural language prompts from trial data.
+    data : DataFrame containing trial data
+    columns : List of columns to include in the prompt. If None, uses all columns except llm_text and label
+    question : Question to ask the LLM. If None, uses a default question
+    include_labels : Whether to include labels in the output dataset
+    label_column : Column name for the label/outcome
+    prompt_template : Custom prompt template. If None, uses default template
+        Use {trial_text} as placeholder for trial information
+        Use {question} as placeholder for the question
+        
+    returns: DataFrame with 'prompt' and optionally 'response' columns
+    """
+    prompts = []
+    responses = []
+    
+    # Make a copy to avoid modifying original
+    data = data.copy()
+    
+    # If columns not specified, use all columns except llm_text and label
+    if columns is None:
+        columns = [col for col in data.columns if col not in ['llm_text', label_column]]
+    
+    # Add LLM text descriptions
+    data_with_text = add_llm_text_data(data, columns)
+    
+    # Default question if none provided
+    if question is None:
+        question = "Analyze this clinical trial and summarize its key characteristics, including the study design, target population, and main objectives."
+    
+    # Default prompt template if none provided
+    if prompt_template is None:
+        prompt_template = """You are a clinical trial analyst. Based on the following trial information, provide a detailed analysis.
+
+{trial_text}
+
+Question: {question}
+Answer:
+"""
+    
+    # Generate prompts and responses
+    for i, row in data_with_text.iterrows():
+        prompt = prompt_template.format(
+            trial_text=row['llm_text'],
+            question=question
+        )
+        prompts.append(prompt.strip())
+        
+        if include_labels and label_column and label_column in row:
+            responses.append(str(row[label_column]))
+    
+    # Create output DataFrame
+    output_df = pd.DataFrame({'prompt': prompts})
+    if include_labels and responses:
+        output_df['response'] = responses
+        
+    return output_df
 
 # Example usage
 if __name__ == "__main__":
@@ -430,7 +491,6 @@ if __name__ == "__main__":
     
     # Example 2: Create from DataFrame
     print("\nCreating from DataFrame...")
-    import pandas as pd
     sample_data = {
         'nct_id': ['NCT001', 'NCT002', 'NCT003'],
         'brief_title': ['Study 1', 'Study 2', 'Study 3'],
