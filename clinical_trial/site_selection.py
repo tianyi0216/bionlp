@@ -21,6 +21,16 @@ class SiteDataProcessor:
         
         required_fields: list of required fields for sites selection data.
         """
+        # from demo data pytrial's fields
+        #- 'nct_id'  # The unique identifier for each trial from clinicaltrials.gov
+# - 'brief_title'  # The title of the clinical trial
+# - 'brief_summary'  # A short description of the trial
+# - 'detailed_description'  # More detailed description of the trial
+# - 'eligibility_criteria'  # The inclusion/exclusion criteria
+# - 'condition'  # The medical condition being studied
+# - 'intervention_name'  # The treatment or intervention being tested
+# - 'phase'  # The phase of the trial (e.g., Phase 1, Phase 2, etc.)
+# - 'overall_status'
         if required_fields is None:
             self.required_fields = [
                 'site_id', 'location_city', 'location_state', 'location_country',
