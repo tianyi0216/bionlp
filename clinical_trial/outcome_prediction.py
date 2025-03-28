@@ -5,6 +5,8 @@ import torch
 from torch.utils.data import Dataset, DataLoader
 from sklearn.preprocessing import StandardScaler, OneHotEncoder
 from sklearn.model_selection import train_test_split
+from sentence_transformers import SentenceTransformer
+from tqdm.auto import tqdm
 
 from preprocess_trial import TrialPreprocessor
 
@@ -114,15 +116,51 @@ class TrialOutcomeProcessor:
         df['text_length'] = df['combined_text'].str.len()
         df['word_count'] = df['combined_text'].str.split().str.len()
         
+        if 'eligibility_criteria' in df.columns:
+            df = self._process_eligibility_criteria(df)
+        
         return df
     
-    def preprocess_for_model(self, df, categorical_cols = None, numeric_cols = None, text_cols = None):
+    def _process_eligibility_criteria(self, df):
+        """Process eligibility criteria into inclusion and exclusion criteria."""
+        def split_criteria(text):
+            text = str(text).lower()
+            lines = [line.strip() for line in text.split('\n') if line.strip()]
+            
+            inclusion = []
+            exclusion = []
+            current_list = inclusion
+            
+            for line in lines:
+                if 'inclusion criteria' in line:
+                    current_list = inclusion
+                    continue
+                elif 'exclusion criteria' in line:
+                    current_list = exclusion
+                    continue
+                current_list.append(line)
+            
+            return {
+                'inclusion_criteria': ' '.join(inclusion) if inclusion else '',
+                'exclusion_criteria': ' '.join(exclusion) if exclusion else ''
+            }
+        
+        if 'eligibility_criteria' in df.columns:
+            criteria_split = df['eligibility_criteria'].apply(split_criteria)
+            df['inclusion_criteria'] = criteria_split.apply(lambda x: x['inclusion_criteria'])
+            df['exclusion_criteria'] = criteria_split.apply(lambda x: x['exclusion_criteria'])
+        
+        return df
+    
+    def preprocess_for_model(self, df, categorical_cols = None, numeric_cols = None, text_cols = None, normalize = False, OneHotEncode = False):
         """
         Preprocess data for model training and prediction.
         df: trial data
         categorical_cols: list of categorical columns to encode
         numeric_cols: list of numeric columns to scale
         text_cols: list of text columns to process
+        normalize: Whether to normalize numeric columns (not used for text tasks or text models)
+        OneHotEncode: Whether to OneHotEncode categorical columns (not used for text tasks or text models)
         returns: Preprocessed data and preprocessing objects
         """
         # Ensure df is a DataFrame
@@ -156,12 +194,15 @@ class TrialOutcomeProcessor:
         for col in categorical_cols:
             if col in df.columns:
                 if df[col].dtype == 'object':
-                    encoder = OneHotEncoder(sparse_output=False, handle_unknown='ignore')
-                    encoded = encoder.fit_transform(df[[col]])
-                    categorical_processor[col] = encoder
-                    feature_names = [f"{col}_{cat}" for cat in encoder.categories_[0]]
-                    encoded_df = pd.DataFrame(encoded, columns=feature_names, index=df.index)
-                    cat_features.append(encoded_df)
+                    if OneHotEncode:
+                        encoder = OneHotEncoder(sparse_output=False, handle_unknown='ignore')
+                        encoded = encoder.fit_transform(df[[col]])
+                        categorical_processor[col] = encoder
+                        feature_names = [f"{col}_{cat}" for cat in encoder.categories_[0]]
+                        encoded_df = pd.DataFrame(encoded, columns=feature_names, index=df.index)
+                        cat_features.append(encoded_df)
+                    else:
+                        cat_features.append(df[[col]])
         
         # combine categorical features
         if cat_features:
@@ -174,11 +215,14 @@ class TrialOutcomeProcessor:
         for col in numeric_cols:
             if col in df.columns:
                 if pd.api.types.is_numeric_dtype(df[col]):
-                    scaler = StandardScaler()
-                    scaled = scaler.fit_transform(df[[col]])
-                    numeric_processor[col] = scaler
-                    scaled_df = pd.DataFrame(scaled, columns=[col], index=df.index)
-                    num_features.append(scaled_df)
+                    if normalize:
+                        scaler = StandardScaler()
+                        scaled = scaler.fit_transform(df[[col]])
+                        numeric_processor[col] = scaler
+                        scaled_df = pd.DataFrame(scaled, columns=[col], index=df.index)
+                        num_features.append(scaled_df)
+                    else:
+                        num_features.append(df[[col]])
         
         # combine numeric features
         if num_features:
@@ -475,6 +519,86 @@ Answer:
         output_df['response'] = responses
 
     return output_df
+
+def embed_dataset_column(data, column, model, model_name, batch_size, max_length, device, normalize_embeddings, show_progress, cache_dir):
+    """
+    Create embeddings for a column in a dataset using a specified model.
+    
+    data : Input data containing the column to embed. Can be a DataFrame or Series.
+    column : Name of the column to embed if data is DataFrame. Not needed if data is Series.
+    model : Pre-initialized embedding model. If None, will load model based on model_name.
+    model_name : Name of the model to use for embeddings if model not provided.
+        Default is "all-MiniLM-L6-v2" from sentence-transformers.
+    batch_size : Batch size for processing embeddings.
+    max_length : Maximum sequence length for text processing.
+    device : Device to run the model on ('cpu', 'cuda', etc.). If None, will use GPU if available.
+    normalize_embeddings : Whether to L2-normalize the embeddings.
+    show_progress : Whether to show a progress bar during embedding.
+    cache_dir : Directory to cache the downloaded model. If None, uses default cache.
+        
+    returns: Array of embeddings with shape (n_samples, embedding_dim)
+    """
+    if isinstance(data, pd.DataFrame):
+        if column is None:
+            raise ValueError("column name must be provided when input is DataFrame")
+        if column not in data.columns:
+            raise ValueError(f"Column '{column}' not found in DataFrame")
+        texts = data[column].astype(str).values
+    elif isinstance(data, pd.Series):
+        texts = data.astype(str).values
+    else:
+        raise ValueError("data must be either pandas DataFrame or Series")
+
+    # choose a device
+    if device is None:
+        device = "cuda" if torch.cuda.is_available() else "cpu"
+
+    # load the model if only have name
+    if model is None:
+        try:
+            model = SentenceTransformer(model_name, cache_folder=cache_dir)
+        except Exception as e:
+            raise ValueError(f"Error loading model '{model_name}': {str(e)}")
+    
+    model = model.to(device)
+
+    # process in batches
+    embeddings = []
+    
+    # create batches
+    n_samples = len(texts)
+    n_batches = (n_samples + batch_size - 1) // batch_size
+    
+    # create progress bar if requested
+    batch_iterator = range(n_batches)
+    if show_progress:
+        batch_iterator = tqdm(batch_iterator, desc="Creating embeddings")
+    
+    try:
+        for i in batch_iterator:
+            start_idx = i * batch_size
+            end_idx = min((i + 1) * batch_size, n_samples)
+            batch_texts = texts[start_idx:end_idx]
+            
+            # get embeddings for batch
+            with torch.no_grad():
+                batch_embeddings = model.encode(
+                    batch_texts,
+                    batch_size=len(batch_texts),
+                    show_progress_bar=False,
+                    normalize_embeddings=normalize_embeddings,
+                    convert_to_numpy=True,
+                    max_length=max_length
+                )
+            
+            embeddings.append(batch_embeddings)
+    
+    except Exception as e:
+        raise RuntimeError(f"Error during embedding creation: {str(e)}")
+    
+    # combine all batches
+    embeddings = np.vstack(embeddings)  
+    return embeddings
 
 
 
