@@ -24,6 +24,9 @@ class TrialSearchProcessor:
     
     def __init__(self, text_fields = None, filter_fields = None):
         """Initialize the processor."""
+
+        # fields used in pytrial demo : 'fields':['title','intervention_name','disease','keyword'],
+        # 'ctx_fields':['description','criteria']
         # fields to search and filter on
         if text_fields is None:
             self.text_fields = ['brief_title', 'brief_summary', 'detailed_description', 'eligibility_criteria']
@@ -410,6 +413,86 @@ def add_llm_text_data_for_trial_search(dataset, fields):
             llm_text += f"{field}: {row.get(field, 'N/A')}\n"
         dataset.at[i, 'llm_text'] = llm_text.strip()
     return dataset
+
+def embed_dataset_column(data, column, model, model_name, batch_size, max_length, device, normalize_embeddings, show_progress, cache_dir):
+    """
+    Create embeddings for a column in a dataset using a specified model.
+    
+    data : Input data containing the column to embed. Can be a DataFrame or Series.
+    column : Name of the column to embed if data is DataFrame. Not needed if data is Series.
+    model : Pre-initialized embedding model. If None, will load model based on model_name.
+    model_name : Name of the model to use for embeddings if model not provided.
+        Default is "all-MiniLM-L6-v2" from sentence-transformers.
+    batch_size : Batch size for processing embeddings.
+    max_length : Maximum sequence length for text processing.
+    device : Device to run the model on ('cpu', 'cuda', etc.). If None, will use GPU if available.
+    normalize_embeddings : Whether to L2-normalize the embeddings.
+    show_progress : Whether to show a progress bar during embedding.
+    cache_dir : Directory to cache the downloaded model. If None, uses default cache.
+        
+    returns: Array of embeddings with shape (n_samples, embedding_dim)
+    """
+    if isinstance(data, pd.DataFrame):
+        if column is None:
+            raise ValueError("column name must be provided when input is DataFrame")
+        if column not in data.columns:
+            raise ValueError(f"Column '{column}' not found in DataFrame")
+        texts = data[column].astype(str).values
+    elif isinstance(data, pd.Series):
+        texts = data.astype(str).values
+    else:
+        raise ValueError("data must be either pandas DataFrame or Series")
+
+    # choose a device
+    if device is None:
+        device = "cuda" if torch.cuda.is_available() else "cpu"
+
+    # load the model if only have name
+    if model is None:
+        try:
+            model = SentenceTransformer(model_name, cache_folder=cache_dir)
+        except Exception as e:
+            raise ValueError(f"Error loading model '{model_name}': {str(e)}")
+    
+    model = model.to(device)
+
+    # process in batches
+    embeddings = []
+    
+    # create batches
+    n_samples = len(texts)
+    n_batches = (n_samples + batch_size - 1) // batch_size
+    
+    # create progress bar if requested
+    batch_iterator = range(n_batches)
+    if show_progress:
+        batch_iterator = tqdm(batch_iterator, desc="Creating embeddings")
+    
+    try:
+        for i in batch_iterator:
+            start_idx = i * batch_size
+            end_idx = min((i + 1) * batch_size, n_samples)
+            batch_texts = texts[start_idx:end_idx]
+            
+            # get embeddings for batch
+            with torch.no_grad():
+                batch_embeddings = model.encode(
+                    batch_texts,
+                    batch_size=len(batch_texts),
+                    show_progress_bar=False,
+                    normalize_embeddings=normalize_embeddings,
+                    convert_to_numpy=True,
+                    max_length=max_length
+                )
+            
+            embeddings.append(batch_embeddings)
+    
+    except Exception as e:
+        raise RuntimeError(f"Error during embedding creation: {str(e)}")
+    
+    # combine all batches
+    embeddings = np.vstack(embeddings)  
+    return embeddings
 
 
 
