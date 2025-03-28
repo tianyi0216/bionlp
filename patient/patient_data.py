@@ -11,7 +11,7 @@ import torch
 
 from torch.utils.data import Dataset, DataLoader
 import numpy as np
-
+import pandas as pd
 from tabular_utils import HyperTransformer
 from tabular_utils import get_transformer
 
@@ -490,3 +490,139 @@ class SeqPatientCollator:
     def _parse_tensor_feature(self, return_data):
         x_ts = torch.tensor(np.array(return_data['x']))
         return_data['x'] = x_ts
+
+def add_llm_text_data_for_patient(data, format_type='tabular', columns=None, visit_types=None):
+    """Add a textual description of patient data for LLM input.
+    data :  For tabular data: DataFrame containing patient records
+        For sequential data: Dictionary containing 'x' (static features), 'v' (visits), 'y' (labels)
+    format_type : 'tabular' or 'sequential' - specifies the type of patient data
+    columns : List of columns to include in the text description
+    visit_types : For sequential data only: List of visit event types to include (e.g., ['diag', 'med', 'prod'])
+    
+    Returns
+    -------
+    data : Original data with added 'llm_text' column/field containing formatted text
+    """
+    if format_type == 'tabular':
+        if not isinstance(data, pd.DataFrame):
+            raise ValueError("For tabular format, data must be a pandas DataFrame")
+            
+        data = data.copy()
+        data['llm_text'] = ""
+        
+        # if columns is not provided, use all columns
+        if columns is None:
+            columns = data.columns
+            
+        for i, row in enumerate(data.itertuples()):
+            text = "Patient Information:\n"
+            for col in columns:
+                value = getattr(row, col, 'N/A')
+                if pd.isna(value):
+                    value = 'N/A'
+                text += f"{col}: {value}\n"
+            data.at[i, 'llm_text'] = text.strip()
+            
+    elif format_type == 'sequential':
+        if not isinstance(data, dict):
+            raise ValueError("For sequential format, data must be a dictionary")
+            
+        data = data.copy()
+        
+        num_patients = len(data['v']) if 'v' in data else len(data['x'])
+        data['llm_text'] = [""] * num_patients
+        
+        for i in range(num_patients):
+            text = "Patient Information:\n"
+            
+            # Add static features
+            if 'x' in data and columns is not None:
+                text += "\nStatic Features for Patient:\n"
+                for col_idx, col in enumerate(columns):
+                    value = data['x'][i][col_idx] if isinstance(data['x'][i], (list, np.ndarray)) else data['x'][i][col]
+                    if pd.isna(value):
+                        value = 'N/A'
+                    text += f"{col}: {value}\n"
+            
+            # Add visit sequences
+            if 'v' in data and visit_types is not None:
+                text += "\nVisit History for Patient:\n"
+                visits = data['v'][i]
+                
+                if isinstance(visits, dict):  # Dense format
+                    for visit_type in visit_types:
+                        if visit_type in visits:
+                            text += f"{visit_type}: {visits[visit_type]}\n"
+                else:  # Tensor format
+                    for visit_idx, visit in enumerate(visits):
+                        text += f"Visit {visit_idx + 1}: {visit}\n"
+            
+            # Add label if available
+            if 'y' in data:
+                label = data['y'][i]
+                text += f"\nOutcome: {label}\n"
+                
+            data['llm_text'][i] = text.strip()
+    else:
+        raise ValueError("format_type must be either 'tabular' or 'sequential'")
+    return data
+
+def create_llm_dataset_for_patient(data, format_type='tabular', columns=None, question = None, visit_types=None, include_labels=True, label_column = None):
+    """
+    Create a dataset for LLM training by generating natural language prompts from patient data.
+    data : Patient data in either tabular or sequential format
+    format_type : 'tabular' or 'sequential' - specifies the type of patient data
+    columns : List of columns to include in the prompt
+    question : Question to ask the LLM
+    visit_types : List of visit event types to include
+    include_labels : Whether to include labels/outcomes in the output dataset
+    label_column : Column name for the label/outcome
+    Returns
+    -------
+    pd.DataFrame
+        DataFrame with 'prompt' and optionally 'response' columns
+    """
+    prompts = []
+    responses = []
+    
+    # add text first
+    data_with_text = add_llm_text_data_for_patient(
+        data, 
+        format_type=format_type,
+        columns=columns,
+        visit_types=visit_types
+    )
+    
+    if format_type == 'tabular':
+        for i, row in data_with_text.iterrows():
+            prompt = f"""You are a healthcare analyst. Based on the following patient information, analyze the patient's condition and relevant characteristics.
+
+{row['llm_text']}
+
+Question: {question}
+Answer:
+""".strip()
+            prompts.append(prompt)
+            
+            if include_labels and label_column in row:
+                responses.append(str(row[label_column]))
+                
+    elif format_type == 'sequential':
+        for i in range(len(data_with_text['llm_text'])):
+            prompt = f"""You are a healthcare analyst. Based on the following patient visit history and information, analyze the patient's medical trajectory.
+
+{data_with_text['llm_text'][i]}
+
+Question: {question}
+Answer:
+""".strip()
+            prompts.append(prompt)
+            
+            if include_labels and label_column in data_with_text:
+                responses.append(str(data_with_text[label_column][i]))
+    
+    output_df = pd.DataFrame({'prompt': prompts})
+    if include_labels and (responses):
+        output_df['response'] = responses
+        
+    return output_df 
