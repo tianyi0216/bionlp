@@ -22,10 +22,20 @@ class TrialOutcomeProcessor:
         required_fields: Required fields for outcome prediction
         """
         if required_fields is None:
+            # the foolowing is from pytrial, however, note that it is also using smile and label, smile is not clinical trial data.
             self.required_fields = [
-                'nct_id', 'brief_title', 'brief_summary', 
-                'detailed_description', 'eligibility_criteria',
-                'phase', 'condition', 'overall_status'
+                'nct_id',                # Direct
+                'brief_title',           # Direct
+                'overall_status',        # Direct
+                'study_first_submitted_date',  # For year
+                'completion_date',       # For end_year
+                'phase',                 # Direct
+                'condition',             # For diseases
+                'intervention_name',     # For drugs
+                'intervention_type',     # To filter for drugs
+                'eligibility_criteria',  # For inclusion/exclusion criteria
+                'detailed_description',  # For description
+                'why_stopped',           # For why_stop
             ]
         else:
             self.required_fields = required_fields
