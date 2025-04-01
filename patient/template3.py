@@ -1,5 +1,5 @@
-from patient.demo_data import load_mimic_ehr_sequence, load_trial_outcome_data
-from patient.trial_patient_match.data import TrialData, PatientData
+from trial.bionlp.patient.demo_data import load_mimic_ehr_sequence, load_trial_outcome_data
+from trial.bionlp.patient.trial_patient_match.data import TrialData, PatientData
 df = load_trial_outcome_data()['data']
 df = df.iloc[:10] # make subsampling
 trial_data = TrialData(df,encode_ec=True)
