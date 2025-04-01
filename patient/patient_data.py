@@ -126,70 +126,70 @@ class TabularPatientBase(Dataset):
 
 
 
-def transform(self, df=None):
-    '''
-    Transform the input df or the self.df by hypertransformer.
-    If transform=True in `__init__`, then you do not need to call this function
-    to transform self.df because it was tranformed already.
+    def transform(self, df=None):
+        '''
+        Transform the input df or the self.df by hypertransformer.
+        If transform=True in `__init__`, then you do not need to call this function
+        to transform self.df because it was tranformed already.
 
-    Parameters
-    ----------
-    df: pd.DataFrame
-        The dataframe to be transformed by self.ht
-    '''
+        Parameters
+        ----------
+        df: pd.DataFrame
+            The dataframe to be transformed by self.ht
+        '''
 
-    if df is None:
-        return self.ht.transform(self.df)
-    else:
-        return self.ht.transform(df)
-
-
-
-def reverse_transform(self, df=None):
-    '''
-    Reverse the input dataframe back to the original format. Return the self.df in the original
-    format if `df=None`.
-
-    Parameters
-    ----------
-    df: pd.DataFrame
-        The dataframe to be transformed back to the original format by self.ht.
-    '''
-    if df is None:
-        return self.ht.reverse_transform(self.df)
-    else:
-        return self.ht.reverse_transform(df)
+        if df is None:
+            return self.ht.transform(self.df)
+        else:
+            return self.ht.transform(df)
 
 
-def _parse_metadata(self):
-    '''
-    Parse the passed metadata, cope with the following scnearios:
-    (1) only `sdtypes` are given;
-    (2) only `transformers` are given;
-    (3) only partial `sdtypes` are given;
-    (4) only partial `transformers` are given.
-    '''
-    # parse metadata dict for building the hypertransformer
-    metadata = self.metadata
-    self.ht.detect_initial_config(self.df, verbose=False)
 
-    if 'transformers' in metadata:
-        self.ht.update_transformers(metadata['transformers'])
+    def reverse_transform(self, df=None):
+        '''
+        Reverse the input dataframe back to the original format. Return the self.df in the original
+        format if `df=None`.
 
-    if 'sdtypes' in metadata:
-        self.ht.update_sdtypes(metadata['sdtypes'])
-
-    self.ht.fit(self.df)
-    self.metadata.update(self.ht.get_config())
+        Parameters
+        ----------
+        df: pd.DataFrame
+            The dataframe to be transformed back to the original format by self.ht.
+        '''
+        if df is None:
+            return self.ht.reverse_transform(self.df)
+        else:
+            return self.ht.reverse_transform(df)
 
 
-def _create_transformed_col2col(self):
-    # create transformed column id to the original columns
-    transformed_col2col = OrderedDict()
-    for idx, col in enumerate(self.df.columns):
-        col_transformer = self.metadata['transformers'][col]
-        transformed_col2col[col] = col_transformer.output_columns
-    self.metadata['transformed_col2col'] = transformed_col2col
+    def _parse_metadata(self):
+        '''
+        Parse the passed metadata, cope with the following scnearios:
+        (1) only `sdtypes` are given;
+        (2) only `transformers` are given;
+        (3) only partial `sdtypes` are given;
+        (4) only partial `transformers` are given.
+        '''
+        # parse metadata dict for building the hypertransformer
+        metadata = self.metadata
+        self.ht.detect_initial_config(self.df, verbose=False)
+
+        if 'transformers' in metadata:
+            self.ht.update_transformers(metadata['transformers'])
+
+        if 'sdtypes' in metadata:
+            self.ht.update_sdtypes(metadata['sdtypes'])
+
+        self.ht.fit(self.df)
+        self.metadata.update(self.ht.get_config())
+
+
+    def _create_transformed_col2col(self):
+        # create transformed column id to the original columns
+        transformed_col2col = OrderedDict()
+        for idx, col in enumerate(self.df.columns):
+            col_transformer = self.metadata['transformers'][col]
+            transformed_col2col[col] = col_transformer.output_columns
+        self.metadata['transformed_col2col'] = transformed_col2col
 
 
 
