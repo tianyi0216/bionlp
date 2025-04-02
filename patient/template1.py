@@ -4,6 +4,7 @@ from tabular_utils import MinMaxScaler
 from tabular_utils import read_csv_to_df
 # For Individual Patient Outcome Prediction Task (Tabular Patient: Index)
 df = read_csv_to_df("demo_data/trial_patient_data/data_processed.csv")
+'''
 metadata = {
     'sdtypes': {
         'GENDER': 'boolean',
@@ -15,6 +16,7 @@ metadata = {
         'ETHNICITY': rdt.transformers.FrequencyEncoder(),
     },
 }
+'''
 # Custom Metadata Conversion
 patient_data_custom = TabularPatientBase(df,
     metadata={
