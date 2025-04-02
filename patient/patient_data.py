@@ -188,7 +188,11 @@ class TabularPatientBase(Dataset):
         transformed_col2col = OrderedDict()
         for idx, col in enumerate(self.df.columns):
             col_transformer = self.metadata['transformers'][col]
-            transformed_col2col[col] = col_transformer.output_columns
+            if col_transformer is not None:
+                transformed_col2col[col] = col_transformer.output_columns
+            else:
+                transformed_col2col[col] = [col]
+            #transformed_col2col[col] = col_transformer.output_columns
         self.metadata['transformed_col2col'] = transformed_col2col
 
 

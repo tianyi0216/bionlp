@@ -8,11 +8,9 @@ import pandas as pd
 import torch
 from torch.utils.data import Dataset, DataLoader
 
-from ..utils.trial_utils import ClinicalTrials
-from ..utils.tabular_utils import read_csv_to_df
-from ..data.vocab_data import Vocab
-
-from ..utils.tabular_utils import HyperTransformer
+from trial.bionlp.clinical_trial.pytrial_code.source_code.trial_utils import ClinicalTrials
+from trial.bionlp.patient.tabular_utils import read_csv_to_df, HyperTransformer
+from trial.bionlp.patient.vocab_data import Vocab
 
 class TrialDatasetBase(Dataset):
     '''
@@ -64,7 +62,7 @@ class TrialDatasetBase(Dataset):
 
     def _get_ec_emb(self):
         # create EC embedding with indexed ECs
-        from pytrial.model_utils.bert import BERT
+        from trial.bionlp.patient.bert import BERT
         # check if cuda is available
         if torch.cuda.is_available():
             device = 'cuda:0'
