@@ -338,3 +338,22 @@ def convert_liveqa(directory = "dataset"):
     trec_qa_train_1.to_csv("converted_qa/LiveQA/trec_qa_train_1_converted.csv", index = False)
     trec_qa_train_2.to_csv("converted_qa/LiveQA/trec_qa_train_2_converted.csv", index = False)
     trec_qa_test.to_csv("converted_qa/LiveQA/trec_qa_test_converted.csv", index = False)
+
+def convert_medquad(directory = "dataset/MedQuAD"):
+    medquad_ds = load_dataset(directory, filetype = "xml")
+    if not os.path.exists("converted_qa/MedQuAD"):
+        os.makedirs("converted_qa/MedQuAD", exist_ok = True)
+    for k in medquad_ds:
+        medquad_ds[k] = medquad_ds[k].rename(columns = {"question_text": "question", "answer_text": "answer"})
+        medquad_ds[k].to_csv("converted_qa/MedQuAD/" + k.split("/")[-1] + "_converted.csv", index = False)
+
+def convert_hoc(directory = "dataset/hoc"):
+    hoc_train = pd.read_csv(directory + "/hoc_train_fulltext.csv")
+    hoc_dev = pd.read_csv(directory + "/hoc_dev_fulltext.csv")
+    hoc_test = pd.read_csv(directory + "/hoc_test_fulltext.csv")
+
+    if not os.path.exists("converted_qa/hoc"):
+        os.makedirs("converted_qa/hoc", exist_ok = True)
+    # hoc_train.to_csv("converted_qa/hoc/hoc_train_converted.csv", index = False)
+    # hoc_dev.to_csv("converted_qa/hoc/hoc_dev_converted.csv", index = False)
+    # hoc_test.to_csv("converted_qa/hoc/hoc_test_converted.csv", index = False)
