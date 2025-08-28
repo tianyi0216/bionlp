@@ -473,4 +473,397 @@ def convert_nfcorpus(directory = "dataset/NFCorpus"):
     dev_df.to_csv("converted_qa/NFCorpus/nfcorpus_dev_converted.csv", index = False)  
     test_df.to_csv("converted_qa/NFCorpus/nfcorpus_test_converted.csv", index = False)
     
-    return train_df, dev_df, test_df
+def convert_bionli(directory = "dataset/BioNLI"):
+    bionli_train = pd.read_csv(directory + "/train_balanced.csv")
+    bionli_dev = pd.read_csv(directory + "/dev_balanced.csv")
+    bionli_test = pd.read_csv(directory + "/test.csv")
+
+    def convert_to_qa(df):
+        qa_data = []
+        for _, row in df.iterrows():
+            # Create question with premise and hypothesis
+            question = f"Based on the following biomedical evidence: {row['supp_set']} Does this conclusion hold true: {row['conclusion']}"
+            
+            # Create answer based on label_cat
+            if row['label_cat'] == 'pos':
+                answer = "The answer is yes, this conclusion is supported by the evidence."
+            else:
+                answer = "The answer is no, this conclusion is not supported by the evidence."
+            
+            qa_data.append({
+                "question": question,
+                "answer": answer
+            })
+        
+        return pd.DataFrame(qa_data)
+    
+    # Convert each dataset
+    train_qa = convert_to_qa(bionli_train)
+    dev_qa = convert_to_qa(bionli_dev)
+    test_qa = convert_to_qa(bionli_test)
+    
+    # Create output directory
+    if not os.path.exists("converted_qa/BioNLI"):
+        os.makedirs("converted_qa/BioNLI", exist_ok = True)
+    
+    # Save the datasets
+    train_qa.to_csv("converted_qa/BioNLI/bionli_train_converted.csv", index = False)
+    dev_qa.to_csv("converted_qa/BioNLI/bionli_dev_converted.csv", index = False)
+    test_qa.to_csv("converted_qa/BioNLI/bionli_test_converted.csv", index = False)
+    
+    return train_qa, dev_qa, test_qa
+
+def convert_bc5cdr(file_path="dataset/bc5cdr/train_bc5cdr.txt"):
+    import json
+    
+    def parse_bc5cdr_file(file_path):
+        import ast
+        all_documents = []
+        with open(file_path, 'r', encoding='utf-8') as f:
+            lines_processed = 0
+            for line in f:
+                lines_processed += 1
+                line = line.strip()
+                if line:
+                    try:
+                        # Try ast.literal_eval first (handles single quotes)
+                        doc_list = ast.literal_eval(line)
+                        # print(f"Line {lines_processed}: Successfully parsed with ast, type: {type(doc_list)}")
+                        
+                        # Each line is a list of documents for one paper
+                        if isinstance(doc_list, list):
+                            all_documents.append(doc_list)
+                            #print(f"  Added document group with {len(doc_list)} documents")
+                        else:
+                            print(f"  Not a list, type: {type(doc_list)}")
+                    except (ValueError, SyntaxError) as e:
+                        try:
+                            # Fallback to json.loads
+                            doc_list = json.loads(line)
+                            if isinstance(doc_list, list):
+                                all_documents.append(doc_list)
+                        except json.JSONDecodeError:
+                            # print(f"Line {lines_processed}: Parse error: {e}")
+                            continue
+            # print(f"Total lines processed: {lines_processed}")
+        return all_documents
+    
+    def create_qa_from_doc_group(doc_group):
+        qa_data = []
+        
+        # Find title and abstract
+        title_doc = None
+        abstract_doc = None
+        
+        for doc in doc_group:
+            if doc.get('type') == 'title':
+                title_doc = doc
+            elif doc.get('type') == 'abstract':
+                abstract_doc = doc
+        
+        if not title_doc:
+            return qa_data
+            
+        # Get text (use title, and abstract if available)
+        full_text = title_doc['text']
+        if abstract_doc:
+            full_text += " " + abstract_doc['text']
+        
+        # Extract all chemicals and diseases from all documents
+        all_chemicals = set()
+        all_diseases = set()
+        all_relations = []
+        
+        for doc in doc_group:
+            for entity in doc.get('entities', []):
+                if entity['type'] == 'Chemical':
+                    all_chemicals.update(entity['text'])
+                elif entity['type'] == 'Disease':
+                    all_diseases.update(entity['text'])
+            
+            all_relations.extend(doc.get('relations', []))
+        
+        # Always create entity extraction QA if we have entities
+        if all_chemicals or all_diseases:
+            question = f"What biomedical entities are mentioned in this text: {full_text}"
+            chemicals_str = f"Chemicals: {', '.join(sorted(all_chemicals))}" if all_chemicals else ""
+            diseases_str = f"Diseases: {', '.join(sorted(all_diseases))}" if all_diseases else ""
+            answer_parts = [part for part in [chemicals_str, diseases_str] if part]
+            answer = f"The answer is {'; '.join(answer_parts)}"
+            
+            qa_data.append({
+                "question": question,
+                "answer": answer
+            })
+        
+        # Create relation-based QA if we have CID relations
+        if all_relations and all_diseases:
+            cid_relations = [r for r in all_relations if r.get('type') == 'CID']
+            if cid_relations:
+                question = f"Based on this biomedical text: {full_text} What diseases can be caused by the mentioned chemicals?"
+                answer = f"The answer is that the chemicals mentioned can cause the following diseases: {', '.join(sorted(all_diseases))}"
+                
+                qa_data.append({
+                    "question": question,
+                    "answer": answer
+                })
+        
+        return qa_data
+    
+    # Parse the file
+    document_groups = parse_bc5cdr_file(file_path)
+    # print(f"Found {len(document_groups)} document groups")
+    
+    # Create QA dataset
+    all_qa_data = []
+    for doc_group in document_groups:
+        qa_data = create_qa_from_doc_group(doc_group)
+        all_qa_data.extend(qa_data)
+    
+    # print(f"Created {len(all_qa_data)} QA pairs")
+    
+    # Convert to DataFrame
+    df = pd.DataFrame(all_qa_data)
+    
+    # Create output directory
+    if not os.path.exists("converted_qa/BC5CDR"):
+        os.makedirs("converted_qa/BC5CDR", exist_ok=True)
+    
+    # Save the dataset
+    output_name = file_path.split('/')[-1].replace('.txt', '_converted.csv')
+    df.to_csv(f"converted_qa/BC5CDR/{output_name}", index=False)
+    
+    return df
+
+def convert_meqsum(file_path="dataset/MeQSum/MeQSum_ACL2019_BenAbacha_Demner-Fushman.xlsx"):
+    # Read Excel file
+    df = pd.read_excel(file_path)
+    
+    # Create QA format
+    qa_data = []
+    for _, row in df.iterrows():
+        chq = row.get('CHQ', '')
+        summary = row.get('Summary', '')
+        
+        # Clean and format the data
+        if pd.notna(chq) and pd.notna(summary):
+            question = f"Answer the following consumer health question: {chq.strip()}"
+            answer = f"The answer is {summary.strip()}"
+            
+            qa_data.append({
+                "question": question,
+                "answer": answer
+            })
+    
+    # Convert to DataFrame
+    qa_df = pd.DataFrame(qa_data)
+    
+    # Create output directory
+    if not os.path.exists("converted_qa/MeQSum"):
+        os.makedirs("converted_qa/MeQSum", exist_ok=True)
+    
+    # Save the dataset
+    qa_df.to_csv("converted_qa/MeQSum/meqsum_converted.csv", index=False)
+
+def convert_jama(dev_file="dataset/JAMA/dev.jsonl", test_file="dataset/JAMA/test.jsonl"):
+    import json
+    
+    def process_jama_file(file_path):
+        qa_data = []
+        with open(file_path, 'r', encoding='utf-8') as f:
+            for line in f:
+                line = line.strip()
+                if line:
+                    try:
+                        data = json.loads(line)
+                        
+                        # Extract the question and options
+                        question_text = data.get('question', '')
+                        opa = data.get('opa', '')
+                        opb = data.get('opb', '') 
+                        opc = data.get('opc', '')
+                        opd = data.get('opd', '')
+                        answer_idx = data.get('answer_idx', '')
+                        
+                        # Create full question with options
+                        full_question = f"Answer the following medical question: {question_text} The choices are: A) {opa}, B) {opb}, C) {opc}, D) {opd}"
+                        
+                        # Create answer
+                        answer = f"The answer is option {answer_idx}"
+                        
+                        qa_data.append({
+                            "question": full_question,
+                            "answer": answer
+                        })
+                        
+                    except json.JSONDecodeError:
+                        continue
+        
+        return qa_data
+    
+    # Process both files
+    dev_qa = process_jama_file(dev_file) if dev_file else []
+    test_qa = process_jama_file(test_file) if test_file else []
+    
+    # Combine all data
+    all_qa_data = dev_qa + test_qa
+    
+    # Convert to DataFrame
+    df = pd.DataFrame(all_qa_data)
+    
+    # Create output directory
+    if not os.path.exists("converted_qa/JAMA"):
+        os.makedirs("converted_qa/JAMA", exist_ok=True)
+    
+    # Save individual files
+    if dev_qa:
+        dev_df = pd.DataFrame(dev_qa)
+        dev_df.to_csv("converted_qa/JAMA/jama_dev_converted.csv", index=False)
+        
+    if test_qa:
+        test_df = pd.DataFrame(test_qa)
+        test_df.to_csv("converted_qa/JAMA/jama_test_converted.csv", index=False)
+    
+    # Save combined file
+    df.to_csv("converted_qa/JAMA/jama_all_converted.csv", index=False)
+    
+    # print(f"Converted {len(dev_qa)} dev QA pairs and {len(test_qa)} test QA pairs from JAMA")
+    # return df
+
+def convert_medbullets5(dev_file="dataset/MedBullets-5/dev.jsonl", test_file="dataset/MedBullets-5/test.jsonl"):
+    import json
+    
+    def process_medbullets_file(file_path):
+        qa_data = []
+        with open(file_path, 'r', encoding='utf-8') as f:
+            for line in f:
+                line = line.strip()
+                if line:
+                    try:
+                        data = json.loads(line)
+                        
+                        # Extract the question and options
+                        question_text = data.get('question', '')
+                        choice_a = data.get('choicesA', '')
+                        choice_b = data.get('choicesB', '')
+                        choice_c = data.get('choicesC', '')
+                        choice_d = data.get('choicesD', '')
+                        choice_e = data.get('choicesE', '')  # Some may have E option
+                        answer_idx = data.get('answer_idx', '')
+                        
+                        # Create full question with options
+                        if choice_e:  # 5 options
+                            full_question = f"Answer the following medical question: {question_text} The choices are: A) {choice_a}, B) {choice_b}, C) {choice_c}, D) {choice_d}, E) {choice_e}"
+                        else:  # 4 options
+                            full_question = f"Answer the following medical question: {question_text} The choices are: A) {choice_a}, B) {choice_b}, C) {choice_c}, D) {choice_d}"
+                        
+                        # Create answer
+                        answer = f"The answer is option {answer_idx}"
+                        
+                        qa_data.append({
+                            "question": full_question,
+                            "answer": answer
+                        })
+                        
+                    except json.JSONDecodeError:
+                        continue
+        
+        return qa_data
+    
+    # Process both files
+    dev_qa = process_medbullets_file(dev_file) if dev_file else []
+    test_qa = process_medbullets_file(test_file) if test_file else []
+    
+    # Combine all data
+    all_qa_data = dev_qa + test_qa
+    
+    # Convert to DataFrame
+    df = pd.DataFrame(all_qa_data)
+    
+    # Create output directory
+    if not os.path.exists("converted_qa/MedBullets5"):
+        os.makedirs("converted_qa/MedBullets5", exist_ok=True)
+    
+    # Save individual files
+    if dev_qa:
+        dev_df = pd.DataFrame(dev_qa)
+        dev_df.to_csv("converted_qa/MedBullets5/medbullets5_dev_converted.csv", index=False)
+        
+    if test_qa:
+        test_df = pd.DataFrame(test_qa)
+        test_df.to_csv("converted_qa/MedBullets5/medbullets5_test_converted.csv", index=False)
+    
+    # Save combined file
+    df.to_csv("converted_qa/MedBullets5/medbullets5_all_converted.csv", index=False)
+    
+    # print(f"Converted {len(dev_qa)} dev QA pairs and {len(test_qa)} test QA pairs from MedBullets5")
+    # return df
+
+def convert_medbullets4(dev_file="dataset/MedBullets-4/dev.jsonl", test_file="dataset/MedBullets-4/test.jsonl"):
+    import json
+    
+    def process_medbullets_file(file_path):
+        qa_data = []
+        with open(file_path, 'r', encoding='utf-8') as f:
+            for line in f:
+                line = line.strip()
+                if line:
+                    try:
+                        data = json.loads(line)
+                        
+                        # Extract the question and options
+                        question_text = data.get('question', '')
+                        choice_a = data.get('choicesA', '')
+                        choice_b = data.get('choicesB', '')
+                        choice_c = data.get('choicesC', '')
+                        choice_d = data.get('choicesD', '')
+                        choice_e = data.get('choicesE', '')  # Some may have E option
+                        answer_idx = data.get('answer_idx', '')
+                        
+                        # Create full question with options
+                        if choice_e:  # 5 options
+                            full_question = f"Answer the following medical question: {question_text} The choices are: A) {choice_a}, B) {choice_b}, C) {choice_c}, D) {choice_d}, E) {choice_e}"
+                        else:  # 4 options
+                            full_question = f"Answer the following medical question: {question_text} The choices are: A) {choice_a}, B) {choice_b}, C) {choice_c}, D) {choice_d}"
+                        
+                        # Create answer
+                        answer = f"The answer is option {answer_idx}"
+                        
+                        qa_data.append({
+                            "question": full_question,
+                            "answer": answer
+                        })
+                        
+                    except json.JSONDecodeError:
+                        continue
+        
+        return qa_data
+    
+    # Process both files
+    dev_qa = process_medbullets_file(dev_file) if dev_file else []
+    test_qa = process_medbullets_file(test_file) if test_file else []
+    
+    # Combine all data
+    all_qa_data = dev_qa + test_qa
+    
+    # Convert to DataFrame
+    df = pd.DataFrame(all_qa_data)
+    
+    # Create output directory
+    if not os.path.exists("converted_qa/MedBullets4"):
+        os.makedirs("converted_qa/MedBullets4", exist_ok=True)
+    
+    # Save individual files
+    if dev_qa:
+        dev_df = pd.DataFrame(dev_qa)
+        dev_df.to_csv("converted_qa/MedBullets4/medbullets4_dev_converted.csv", index=False)
+        
+    if test_qa:
+        test_df = pd.DataFrame(test_qa)
+        test_df.to_csv("converted_qa/MedBullets4/medbullets4_test_converted.csv", index=False)
+    
+    # Save combined file
+    df.to_csv("converted_qa/MedBullets4/medbullets4_all_converted.csv", index=False)
+    
+    # print(f"Converted {len(dev_qa)} dev QA pairs and {len(test_qa)} test QA pairs from MedBullets4")
+    # return df
