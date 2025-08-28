@@ -349,11 +349,128 @@ def convert_medquad(directory = "dataset/MedQuAD"):
 
 def convert_hoc(directory = "dataset/hoc"):
     hoc_train = pd.read_csv(directory + "/hoc_train_fulltext.csv")
-    hoc_dev = pd.read_csv(directory + "/hoc_dev_fulltext.csv")
+    hoc_dev = pd.read_csv(directory + "/hoc_val_fulltext.csv")
     hoc_test = pd.read_csv(directory + "/hoc_test_fulltext.csv")
+
+    # rename columns
+    hoc_train = hoc_train.rename(columns = {"text": "question", "label": "answer"})
+    hoc_dev = hoc_dev.rename(columns = {"text": "question", "label": "answer"})
+    hoc_test = hoc_test.rename(columns = {"text": "question", "label": "answer"})
+
+    answer_mapping = {
+        0: "None of the above",
+        1: "Sustaining proliferative signaling (PS)",
+        2: "Evading growth suppressors (GS)",
+        3: "Resisting cell death (CD)",
+        4: "Enabling replicative immortality (RI)",
+        5: "Inducing angiogenesis (A)",
+        6: "Activating invasion & metastasis (IM)",
+        7: "Genome instability & mutation (GI)",
+        8: "Tumor-promoting inflammation (TPI)",
+        9: "Deregulating cellular energetics (CE)",
+        10: "Avoiding immune destruction (ID)"
+    }
+
+    def parse_answer_manual(answer_str):
+        # Remove brackets and split by spaces
+        inner = answer_str.strip('[]')
+        if not inner.strip():
+            return []
+        return [int(x) for x in inner.split() if x.strip()]
+
+    hoc_train['answer_list'] = hoc_train['answer'].apply(parse_answer_manual)
+    hoc_dev['answer_list'] = hoc_dev['answer'].apply(parse_answer_manual)
+    hoc_test['answer_list'] = hoc_test['answer'].apply(parse_answer_manual)
+
+    # add prefixes to questions and answers
+    hoc_train["question"] = "What is the hallmark of cancer of the following passage? " + hoc_train["question"] + "Choose from the following options: " + str(answer_mapping.values())
+    hoc_dev["question"] = "What is the hallmark of cancer of the following passage? " + hoc_dev["question"] + "Choose from the following options: " + str(answer_mapping.values())
+    hoc_test["question"] = "What is the hallmark of cancer of the following passage? " + hoc_test["question"] + "Choose from the following options: " + str(answer_mapping.values())
+    
+    hoc_train["answer"] = "The answer is " + hoc_train["answer_list"].apply(lambda x: ", ".join([answer_mapping[i] for i in x]))
+    hoc_dev["answer"] = "The answer is " + hoc_dev["answer_list"].apply(lambda x: ", ".join([answer_mapping[i] for i in x]))
+    hoc_test["answer"] = "The answer is " + hoc_test["answer_list"].apply(lambda x: ", ".join([answer_mapping[i] for i in x]))
 
     if not os.path.exists("converted_qa/hoc"):
         os.makedirs("converted_qa/hoc", exist_ok = True)
-    # hoc_train.to_csv("converted_qa/hoc/hoc_train_converted.csv", index = False)
-    # hoc_dev.to_csv("converted_qa/hoc/hoc_dev_converted.csv", index = False)
-    # hoc_test.to_csv("converted_qa/hoc/hoc_test_converted.csv", index = False)
+    hoc_train.to_csv("converted_qa/hoc/hoc_train_converted.csv", index = False)
+    hoc_dev.to_csv("converted_qa/hoc/hoc_dev_converted.csv", index = False)
+    hoc_test.to_csv("converted_qa/hoc/hoc_test_converted.csv", index = False)
+
+def convert_nfcorpus(directory = "dataset/NFCorpus"):
+    def parse_queries_file(file_path):
+        queries = {}
+        with open(file_path, 'r', encoding='utf-8') as f:
+            for line in f:
+                line = line.strip()
+                if line:
+                    parts = line.split('\t', 1)
+                    if len(parts) == 2:
+                        query_id, query_text = parts
+                        queries[query_id] = query_text
+        return queries
+    
+    def parse_docs_file(file_path):
+        docs = {}
+        with open(file_path, 'r', encoding='utf-8') as f:
+            for line in f:
+                line = line.strip()
+                if line:
+                    parts = line.split('\t', 1)
+                    if len(parts) == 2:
+                        doc_id, doc_text = parts
+                        docs[doc_id] = doc_text
+        return docs
+    
+    def parse_qrel_file(file_path):
+        qrels = []
+        with open(file_path, 'r', encoding='utf-8') as f:
+            for line in f:
+                line = line.strip()
+                if line:
+                    parts = line.split()
+                    if len(parts) >= 4:
+                        # Standard TREC format: query_id 0 doc_id relevance
+                        query_id, _, doc_id, relevance = parts[0], parts[1], parts[2], int(parts[3])
+                        if relevance > 0:  # Only include relevant docs
+                            qrels.append((query_id, doc_id))
+                    elif len(parts) == 3:
+                        # Alternative format: query_id doc_id relevance
+                        query_id, doc_id, relevance = parts[0], parts[1], int(parts[2])
+                        if relevance > 0:  # Only include relevant docs
+                            qrels.append((query_id, doc_id))
+        return qrels
+    
+    def create_qa_dataset(split):
+        # Load queries, docs, and relevance judgments
+        queries = parse_queries_file(f"{directory}/{split}.all.queries")
+        docs = parse_docs_file(f"{directory}/{split}.docs")
+        qrels = parse_qrel_file(f"{directory}/{split}.3-2-1.qrel")
+        
+        qa_data = []
+        for query_id, doc_id in qrels:
+            if query_id in queries and doc_id in docs:
+                question = "Answer the following nutrition and health question: " + queries[query_id]
+                answer = "The answer is " + docs[doc_id]
+                qa_data.append({
+                    "question": question,
+                    "answer": answer
+                })
+        
+        return pd.DataFrame(qa_data)
+    
+    # Create QA datasets for train, dev, test
+    train_df = create_qa_dataset("train")
+    dev_df = create_qa_dataset("dev") 
+    test_df = create_qa_dataset("test")
+    
+    # Create output directory
+    if not os.path.exists("converted_qa/NFCorpus"):
+        os.makedirs("converted_qa/NFCorpus", exist_ok = True)
+    
+    # Save the datasets
+    train_df.to_csv("converted_qa/NFCorpus/nfcorpus_train_converted.csv", index = False)
+    dev_df.to_csv("converted_qa/NFCorpus/nfcorpus_dev_converted.csv", index = False)  
+    test_df.to_csv("converted_qa/NFCorpus/nfcorpus_test_converted.csv", index = False)
+    
+    return train_df, dev_df, test_df
