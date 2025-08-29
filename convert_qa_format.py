@@ -99,46 +99,49 @@ def parse_qa_xml(file_path):
 def load_dataset(path, filetype = "csv"):
     if filetype == "csv":
         all_files = []
-        for root, dirs, files in tqdm(os.walk(path), desc = "Loading CSV files"):
-            for file in tqdm(files, desc = "Processing file"):
+        for root, dirs, files in os.walk(path):
+            for file in files:
                 if file.endswith(".csv"):
                     all_files.append(os.path.join(root, file))
+        print(f"Found {len(all_files)} CSV files")
         ds = {}
-        for f in all_files:
+        for f in tqdm(all_files, desc="Loading CSV files"):
             df = pd.read_csv(f)
             ds[f] = df
         return ds
     elif filetype == "xml":
         all_files = []
-        for root, dirs, files in tqdm(os.walk(path), desc = "Loading XML files"):
-            for file in tqdm(files, desc = "Processing file"):
+        for root, dirs, files in os.walk(path):
+            for file in files:
                 if file.endswith(".xml"):
                     all_files.append(os.path.join(root, file))
+        print(f"Found {len(all_files)} XML files")
         ds = {}
-        for f in all_files:
+        for f in tqdm(all_files, desc="Loading XML files"):
             ds[f] = parse_xml(f)
         return ds
     elif filetype == "jsonl":
         all_files = []
-        for root, dirs, files in tqdm(os.walk(path), desc = "Loading JSONL files"):
-            for file in tqdm(files, desc = "Processing file"):
+        for root, dirs, files in os.walk(path):
+            for file in files:
                 if file.endswith(".jsonl"):
                     all_files.append(os.path.join(root, file))
+        print(f"Found {len(all_files)} JSONL files")
         ds = {}
-        for f in all_files:
-            print("current file: ", f)
+        for f in tqdm(all_files, desc="Loading JSONL files"):
             with open(f, "r") as file:
                 data = [json.loads(line) for line in file]
             ds[f] = pd.DataFrame(data)
         return ds
     elif filetype == "json":
         all_files = []
-        for root, dirs, files in tqdm(os.walk(path), desc = "Loading JSON files"):
-            for file in tqdm(files, desc = "Processing file"):
+        for root, dirs, files in os.walk(path):
+            for file in files:
                 if file.endswith(".json"):
                     all_files.append(os.path.join(root, file))
+        print(f"Found {len(all_files)} JSON files")
         ds = {}
-        for f in all_files:
+        for f in tqdm(all_files, desc="Loading JSON files"):
             with open(f, "r") as file:
                 data = json.load(file)
             ds[f] = pd.DataFrame(data)
@@ -206,9 +209,9 @@ def convert_medmcqa(directory = "dataset/MedMCQA/data"):
 
 def convert_medqa_usmle(directory = "dataset/MedQA-USMLE/questions/US"):
     ds_json = load_dataset(directory, filetype = "jsonl")
-    medqa_train = ds_json["../dataset/MedQA-USMLE/questions/US/train.jsonl"]
-    medqa_dev = ds_json["../dataset/MedQA-USMLE/questions/US/dev.jsonl"]
-    medqa_test = ds_json["../dataset/MedQA-USMLE/questions/US/test.jsonl"]
+    medqa_train = ds_json["dataset/MedQA-USMLE/questions/US/train.jsonl"]
+    medqa_dev = ds_json["dataset/MedQA-USMLE/questions/US/dev.jsonl"]
+    medqa_test = ds_json["dataset/MedQA-USMLE/questions/US/test.jsonl"]
 
     if not os.path.exists("converted_qa/MedQA-USMLE"):
         os.makedirs("converted_qa/MedQA-USMLE", exist_ok = True)
@@ -343,7 +346,7 @@ def convert_medquad(directory = "dataset/MedQuAD"):
     medquad_ds = load_dataset(directory, filetype = "xml")
     if not os.path.exists("converted_qa/MedQuAD"):
         os.makedirs("converted_qa/MedQuAD", exist_ok = True)
-    for k in medquad_ds:
+    for k in tqdm(medquad_ds, desc = "Now Processing MedQuAD", total = len(medquad_ds)):
         medquad_ds[k] = medquad_ds[k].rename(columns = {"question_text": "question", "answer_text": "answer"})
         medquad_ds[k].to_csv("converted_qa/MedQuAD/" + k.split("/")[-1] + "_converted.csv", index = False)
 
