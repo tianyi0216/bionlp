@@ -513,7 +513,7 @@ def convert_bionli(directory = "dataset/BioNLI"):
     
     return train_qa, dev_qa, test_qa
 
-def convert_bc5cdr(file_path="dataset/bc5cdr/train_bc5cdr.txt"):
+def convert_bc5cdr(train_path="dataset/bc5cdr/train_bc5cdr.txt", val_path="dataset/bc5cdr/val_bc5cdr.txt", test_path="dataset/bc5cdr/test_bc5cdr.txt"):
     import json
     
     def parse_bc5cdr_file(file_path):
@@ -610,30 +610,41 @@ def convert_bc5cdr(file_path="dataset/bc5cdr/train_bc5cdr.txt"):
         
         return qa_data
     
-    # Parse the file
-    document_groups = parse_bc5cdr_file(file_path)
-    # print(f"Found {len(document_groups)} document groups")
+    # Parse all three files
+    train_groups = parse_bc5cdr_file(train_path)
+    val_groups = parse_bc5cdr_file(val_path)
+    test_groups = parse_bc5cdr_file(test_path)
     
-    # Create QA dataset
-    all_qa_data = []
-    for doc_group in document_groups:
-        qa_data = create_qa_from_doc_group(doc_group)
-        all_qa_data.extend(qa_data)
+    print(f"Found {len(train_groups)} train, {len(val_groups)} val, {len(test_groups)} test document groups")
     
-    # print(f"Created {len(all_qa_data)} QA pairs")
+    # Create QA datasets for each split
+    def process_split(document_groups, split_name):
+        all_qa_data = []
+        for doc_group in document_groups:
+            qa_data = create_qa_from_doc_group(doc_group)
+            all_qa_data.extend(qa_data)
+        print(f"Created {len(all_qa_data)} {split_name} QA pairs")
+        return pd.DataFrame(all_qa_data)
     
-    # Convert to DataFrame
-    df = pd.DataFrame(all_qa_data)
+    train_df = process_split(train_groups, "train")
+    val_df = process_split(val_groups, "val") 
+    test_df = process_split(test_groups, "test")
     
     # Create output directory
     if not os.path.exists("converted_qa/BC5CDR"):
         os.makedirs("converted_qa/BC5CDR", exist_ok=True)
     
-    # Save the dataset
-    output_name = file_path.split('/')[-1].replace('.txt', '_converted.csv')
-    df.to_csv(f"converted_qa/BC5CDR/{output_name}", index=False)
+    # Save individual datasets
+    train_df.to_csv("converted_qa/BC5CDR/bc5cdr_train_converted.csv", index=False)
+    val_df.to_csv("converted_qa/BC5CDR/bc5cdr_val_converted.csv", index=False)
+    test_df.to_csv("converted_qa/BC5CDR/bc5cdr_test_converted.csv", index=False)
     
-    return df
+    # Combine all splits
+    combined_df = pd.concat([train_df, val_df, test_df], ignore_index=True)
+    combined_df.to_csv("converted_qa/BC5CDR/bc5cdr_all_converted.csv", index=False)
+    
+    print(f"Total BC5CDR QA pairs: {len(combined_df)}")
+    return combined_df
 
 def convert_meqsum(file_path="dataset/MeQSum/MeQSum_ACL2019_BenAbacha_Demner-Fushman.xlsx"):
     # Read Excel file
@@ -867,3 +878,338 @@ def convert_medbullets4(dev_file="dataset/MedBullets-4/dev.jsonl", test_file="da
     
     # print(f"Converted {len(dev_qa)} dev QA pairs and {len(test_qa)} test QA pairs from MedBullets4")
     # return df
+
+def validate_data():
+    """Validate that all required datasets exist, downloading HuggingFace datasets where possible."""
+    import os
+    from datasets import load_dataset
+    
+    # Define dataset configurations
+    datasets_config = {
+        # HuggingFace datasets that can be auto-downloaded
+        "hoc": {
+            "hf_name": "qanastek/HoC",
+            "files": ["dataset/hoc/hoc_train_fulltext.csv", "dataset/hoc/hoc_val_fulltext.csv", "dataset/hoc/hoc_test_fulltext.csv"],
+            "auto_download": True
+        },
+        "pubmedqa": {
+            "hf_name": None,  # Complex structure, manual download needed
+            "files": ["dataset/PubMedQA/ori_pqaa.json", "dataset/PubMedQA/ori_pqau.json", "dataset/PubMedQA/ori_pqal.json"],
+            "auto_download": False,
+            "manual_link": "https://github.com/pubmedqa/pubmedqa"
+        },
+        "medmcqa": {
+            "hf_name": "medmcqa/train.jsonl",  # Custom handling needed
+            "files": ["dataset/MedMCQA/data/train.jsonl", "dataset/MedMCQA/data/dev.jsonl"],
+            "auto_download": True
+        },
+        "medqa": {
+            "hf_name": None,
+            "files": ["dataset/MedQA-USMLE/questions/US/train.jsonl", "dataset/MedQA-USMLE/questions/US/dev.jsonl", "dataset/MedQA-USMLE/questions/US/test.jsonl"],
+            "auto_download": False,
+            "manual_link": "https://www.kaggle.com/datasets/moaaztameer/medqa-usmle"
+        },
+        "medicationqa": {
+            "hf_name": "truehealth/medicationqa",
+            "files": ["dataset/MedicationQA/medicationqa_train_fulltext.csv"],
+            "auto_download": True
+        },
+        "liveqa": {
+            "hf_name": None,
+            "files": ["dataset/LiveQA/TREC-2017-LiveQA-Medical-Train-1.xml", "dataset/LiveQA/TREC-2017-LiveQA-Medical-Train-2.xml", "dataset/LiveQA/TREC-2017-LiveQA-Medical-Test.xml"],
+            "auto_download": False,
+            "manual_link": "https://github.com/abachaa/LiveQA_MedicalTask_TREC2017"
+        },
+        "medquad": {
+            "hf_name": None,
+            "files": ["dataset/MedQuAD/"],  # Directory with XML files
+            "auto_download": False,
+            "manual_link": "https://github.com/abachaa/MedQuAD"
+        },
+        "bc5cdr": {
+            "hf_name": "bigbio/bc5cdr",
+            "files": ["dataset/bc5cdr/train_bc5cdr.txt", "dataset/bc5cdr/val_bc5cdr.txt", "dataset/bc5cdr/test_bc5cdr.txt"],
+            "auto_download": True
+        },
+        "meqsum": {
+            "hf_name": "sumedh/MeQSum",
+            "files": ["dataset/MeQSum/MeQSum_ACL2019_BenAbacha_Demner-Fushman.xlsx"],
+            "auto_download": False,  # Manual download needed despite being on HF
+            "manual_link": "https://huggingface.co/datasets/sumedh/MeQSum"
+        },
+        "bionli": {
+            "hf_name": None,
+            "files": ["dataset/BioNLI/train_balanced.csv", "dataset/BioNLI/dev_balanced.csv", "dataset/BioNLI/test.csv"],
+            "auto_download": False,
+            "manual_link": "https://drive.google.com/drive/folders/1AdWztdlr7doAqHIg1RXrFc2d4Puvxjhj"
+        },
+        "nfcorpus": {
+            "hf_name": None,
+            "files": ["dataset/nfcorpus/train.all.queries", "dataset/nfcorpus/dev.all.queries", "dataset/nfcorpus/test.all.queries"],
+            "auto_download": False,
+            "manual_link": "https://www.cl.uni-heidelberg.de/statnlpgroup/nfcorpus/"
+        },
+        "jama": {
+            "hf_name": "JesseLiu/Jama_challenge",
+            "files": ["dataset/JAMA/dev.jsonl", "dataset/JAMA/test.jsonl"],
+            "auto_download": True
+        },
+        "medbullets5": {
+            "hf_name": "JesseLiu/medbulltes5op",
+            "files": ["dataset/MedBullets-5/dev.jsonl", "dataset/MedBullets-5/test.jsonl"],
+            "auto_download": True
+        },
+        "medbullets4": {
+            "hf_name": "JesseLiu/medbulltes4op", 
+            "files": ["dataset/MedBullets-4/dev.jsonl", "dataset/MedBullets-4/test.jsonl"],
+            "auto_download": True
+        }
+    }
+    
+    def download_hf_dataset(dataset_name, hf_name, expected_files):
+        """Download HuggingFace dataset and save to expected file locations."""
+        print(f"Downloading {dataset_name} from HuggingFace: {hf_name}")
+        try:
+            if dataset_name == "hoc":
+                dataset = load_dataset(hf_name)
+                os.makedirs("dataset/hoc", exist_ok=True)
+                dataset['train'].to_csv("dataset/hoc/hoc_train_fulltext.csv", index=False)
+                dataset['validation'].to_csv("dataset/hoc/hoc_val_fulltext.csv", index=False)  
+                dataset['test'].to_csv("dataset/hoc/hoc_test_fulltext.csv", index=False)
+                
+            elif dataset_name == "medmcqa":
+                dataset = load_dataset("medmcqa")
+                os.makedirs("dataset/MedMCQA/data", exist_ok=True)
+                dataset['train'].to_json("dataset/MedMCQA/data/train.jsonl", orient='records', lines=True)
+                dataset['validation'].to_json("dataset/MedMCQA/data/dev.jsonl", orient='records', lines=True)
+                
+            elif dataset_name == "medicationqa":
+                dataset = load_dataset(hf_name)
+                os.makedirs("dataset/MedicationQA", exist_ok=True)
+                dataset['train'].to_csv("dataset/MedicationQA/medicationqa_train_fulltext.csv", index=False)
+                
+            elif dataset_name == "bc5cdr":
+                dataset = load_dataset(hf_name)
+                os.makedirs("dataset/bc5cdr", exist_ok=True)
+                # BC5CDR needs special processing - save as the expected text format
+                splits = {'train': 'train_bc5cdr.txt', 'validation': 'val_bc5cdr.txt', 'test': 'test_bc5cdr.txt'}
+                for split_name, filename in splits.items():
+                    with open(f"dataset/bc5cdr/{filename}", 'w') as f:
+                        for item in dataset[split_name]:
+                            f.write(str(item) + '\n')
+                        
+            elif dataset_name in ["jama", "medbullets5", "medbullets4"]:
+                dataset = load_dataset(hf_name)
+                if dataset_name == "jama":
+                    os.makedirs("dataset/JAMA", exist_ok=True)
+                    dataset['dev'].to_json("dataset/JAMA/dev.jsonl", orient='records', lines=True)
+                    dataset['test'].to_json("dataset/JAMA/test.jsonl", orient='records', lines=True)
+                elif dataset_name == "medbullets5":
+                    os.makedirs("dataset/MedBullets-5", exist_ok=True)
+                    dataset['dev'].to_json("dataset/MedBullets-5/dev.jsonl", orient='records', lines=True)
+                    dataset['test'].to_json("dataset/MedBullets-5/test.jsonl", orient='records', lines=True)
+                elif dataset_name == "medbullets4":
+                    os.makedirs("dataset/MedBullets-4", exist_ok=True)
+                    dataset['dev'].to_json("dataset/MedBullets-4/dev.jsonl", orient='records', lines=True)
+                    dataset['test'].to_json("dataset/MedBullets-4/test.jsonl", orient='records', lines=True)
+                    
+            print(f"✓ Successfully downloaded and saved {dataset_name}")
+            
+        except Exception as e:
+            print(f"✗ Failed to download {dataset_name}: {str(e)}")
+            return False
+        return True
+    
+    def check_files_exist(files):
+        """Check if all required files exist."""
+        missing_files = []
+        for file_path in files:
+            if file_path.endswith('/'):  # Directory check
+                if not os.path.exists(file_path) or not os.path.isdir(file_path):
+                    missing_files.append(file_path)
+            else:  # File check
+                if not os.path.exists(file_path):
+                    missing_files.append(file_path)
+        return missing_files
+    
+    # Validate each dataset
+    all_valid = True
+    print("🔍 Validating datasets...")
+    print("=" * 50)
+    
+    for dataset_name, config in datasets_config.items():
+        print(f"\nChecking {dataset_name}...")
+        
+        # Check if files already exist
+        missing_files = check_files_exist(config['files'])
+        
+        if not missing_files:
+            print(f"✓ {dataset_name} - All files present")
+            continue
+            
+        # Files are missing - try to download if possible
+        if config['auto_download'] and config['hf_name']:
+            success = download_hf_dataset(dataset_name, config['hf_name'], config['files'])
+            if success:
+                continue
+                
+        # Cannot auto-download, raise error
+        print(f"✗ {dataset_name} - Missing files: {missing_files}")
+        if 'manual_link' in config:
+            print(f"   Please download manually from: {config['manual_link']}")
+        all_valid = False
+    
+    print("\n" + "=" * 50)
+    if all_valid:
+        print("🎉 All datasets validated successfully!")
+    else:
+        print("❌ Some datasets are missing. Please download the missing datasets manually.")
+        raise FileNotFoundError("Missing required datasets. Check the output above for download links.")
+    
+    return all_valid
+
+
+def main():
+    """Main function to validate datasets and run all conversions."""
+    import os
+    import traceback
+    from datetime import datetime
+    
+    print("Starting BioNLP QA Dataset Conversion Pipeline")
+    print("=" * 60)
+    
+    # Step 1: Validate datasets
+    print("Validating datasets...")
+    try:
+        validate_data()
+        print("Dataset validation completed successfully!")
+    except Exception as e:
+        print(f"Dataset validation failed: {str(e)}")
+        print("Please download missing datasets before proceeding.")
+        return False
+    
+    print("\n" + "=" * 60)
+    
+    # Step 2: Run all conversions
+    print("Converting datasets to QA format...")
+    print()
+    
+    conversions = [
+        # Dataset name, function, description
+        ("HOC", convert_hoc, "Converting Hallmarks of Cancer dataset"),
+        ("BioNLI", convert_bionli, "Converting BioNLI dataset"),
+        ("NFCorpus", convert_nfcorpus, "Converting NFCorpus dataset"),
+        ("BC5CDR", convert_bc5cdr, "Converting BC5CDR dataset"),
+        ("MeQSum", convert_meqsum, "Converting MeQSum dataset"),
+        ("JAMA", convert_jama, "Converting JAMA dataset"),
+        ("MedBullets5", convert_medbullets5, "Converting MedBullets5 dataset"),
+        ("MedBullets4", convert_medbullets4, "Converting MedBullets4 dataset"),
+        ("MedicationQA", convert_medication_qa, "Converting MedicationQA dataset"),
+        ("PubMedQA", convert_pubmedqa, "Converting PubMedQA dataset"),
+        ("MedMCQA", convert_medmcqa, "Converting MedMCQA dataset"),
+        ("MedQA-USMLE", convert_medqa_usmle, "Converting MedQA-USMLE dataset"),
+        ("LiveQA", convert_liveqa, "Converting LiveQA dataset"),
+        ("MedQuAD", convert_medquad, "Converting MedQuAD dataset"),
+    ]
+    
+    successful_conversions = []
+    failed_conversions = []
+    
+    for dataset_name, convert_func, description in conversions:
+        print(f"{description}...")
+        try:
+            # Check if required files exist before attempting conversion
+            if dataset_name == "HOC":
+                required_files = ["dataset/hoc/hoc_train_fulltext.csv", "dataset/hoc/hoc_val_fulltext.csv", "dataset/hoc/hoc_test_fulltext.csv"]
+            elif dataset_name == "BioNLI":
+                required_files = ["dataset/BioNLI/train_balanced.csv", "dataset/BioNLI/dev_balanced.csv", "dataset/BioNLI/test.csv"]
+            elif dataset_name == "NFCorpus":
+                required_files = ["dataset/nfcorpus/train.all.queries", "dataset/nfcorpus/dev.all.queries", "dataset/nfcorpus/test.all.queries"]
+            elif dataset_name == "BC5CDR":
+                required_files = ["dataset/bc5cdr/train_bc5cdr.txt", "dataset/bc5cdr/val_bc5cdr.txt", "dataset/bc5cdr/test_bc5cdr.txt"]
+            elif dataset_name == "MeQSum":
+                required_files = ["dataset/MeQSum/MeQSum_ACL2019_BenAbacha_Demner-Fushman.xlsx"]
+            elif dataset_name == "JAMA":
+                required_files = ["dataset/JAMA/dev.jsonl", "dataset/JAMA/test.jsonl"]
+            elif dataset_name == "MedBullets5":
+                required_files = ["dataset/MedBullets-5/dev.jsonl", "dataset/MedBullets-5/test.jsonl"]
+            elif dataset_name == "MedBullets4":
+                required_files = ["dataset/MedBullets-4/dev.jsonl", "dataset/MedBullets-4/test.jsonl"]
+            elif dataset_name == "MedicationQA":
+                required_files = ["dataset/MedicationQA/medicationqa_train_fulltext.csv"]
+            elif dataset_name == "PubMedQA":
+                required_files = ["dataset/PubMedQA/ori_pqaa.json", "dataset/PubMedQA/ori_pqau.json", "dataset/PubMedQA/ori_pqal.json"]
+            elif dataset_name == "MedMCQA":
+                required_files = ["dataset/MedMCQA/data/train.jsonl", "dataset/MedMCQA/data/dev.jsonl"]
+            elif dataset_name == "MedQA-USMLE":
+                required_files = ["dataset/MedQA-USMLE/questions/US/train.jsonl", "dataset/MedQA-USMLE/questions/US/dev.jsonl", "dataset/MedQA-USMLE/questions/US/test.jsonl"]
+            elif dataset_name == "LiveQA":
+                required_files = ["dataset/LiveQA/TREC-2017-LiveQA-Medical-Train-1.xml", "dataset/LiveQA/TREC-2017-LiveQA-Medical-Train-2.xml", "dataset/LiveQA/TREC-2017-LiveQA-Medical-Test.xml"]
+            elif dataset_name == "MedQuAD":
+                required_files = ["dataset/MedQuAD/"]
+            else:
+                required_files = []
+            
+            # Check if files exist
+            missing_files = []
+            for file_path in required_files:
+                if file_path.endswith('/'):  # Directory check
+                    if not os.path.exists(file_path) or not os.path.isdir(file_path):
+                        missing_files.append(file_path)
+                else:  # File check
+                    if not os.path.exists(file_path):
+                        missing_files.append(file_path)
+            
+            if missing_files:
+                print(f"Skipping {dataset_name} - Missing files: {missing_files}")
+                failed_conversions.append((dataset_name, f"Missing files: {missing_files}"))
+                continue
+            
+            # Run conversion
+            result = convert_func()
+            if result is not None:
+                print(f"{dataset_name} conversion completed successfully!")
+                successful_conversions.append(dataset_name)
+            else:
+                print(f"{dataset_name} conversion returned None")
+                failed_conversions.append((dataset_name, "Function returned None"))
+                
+        except Exception as e:
+            print(f"{dataset_name} conversion failed: {str(e)}")
+            failed_conversions.append((dataset_name, str(e)))
+            # Print traceback for debugging
+            print(f"   Error details: {traceback.format_exc()}")
+        
+        print()  # Add spacing between conversions
+    
+    # Step 3: Summary
+    print("=" * 60)
+    print("Conversion Summary")
+    print("=" * 60)
+    
+    print(f"Successful conversions ({len(successful_conversions)}):")
+    for dataset_name in successful_conversions:
+        print(f"   • {dataset_name}")
+    
+    if failed_conversions:
+        print(f"\nFailed conversions ({len(failed_conversions)}):")
+        for dataset_name, error in failed_conversions:
+            print(f"   • {dataset_name}: {error}")
+    
+    # Check output directory
+    output_dir = "converted_qa"
+    if os.path.exists(output_dir):
+        subdirs = [d for d in os.listdir(output_dir) if os.path.isdir(os.path.join(output_dir, d))]
+        print(f"\n📁 Output directory '{output_dir}' contains {len(subdirs)} dataset folders:")
+        for subdir in sorted(subdirs):
+            csv_files = [f for f in os.listdir(os.path.join(output_dir, subdir)) if f.endswith('.csv')]
+            print(f"   • {subdir}/ ({len(csv_files)} CSV files)")
+    
+    print(f"\nCompleted")
+    
+    return len(failed_conversions) == 0  # Return True if all conversions succeeded
+
+
+if __name__ == "__main__":
+    success = main()
+    exit(0 if success else 1)
