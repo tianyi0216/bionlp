@@ -32,7 +32,7 @@ DATASET_GROUPS = {
     },
     "exam_mc": {
         "datasets": ["MedMCQA", "JAMA", "MedBullets5", "MedBullets4"],
-        "qualities": {"MedMCQA": 1, "JAMA": 1, "MedBullets5": 1, "MedBullets4": 1},
+        "qualities": {"MedMCQA": 0, "JAMA": 1, "MedBullets5": 1, "MedBullets4": 1},
         "target_size": 2500
     },
     "exam_open": {
@@ -74,13 +74,13 @@ def get_parser():
     parser.add_argument(
         "--threshold",
         type=float,
-        default=0.7,
+        default=0.9,
         help="Threshold for deduplication"
     )
     parser.add_argument(
         "--quality_weight",
         type=float,
-        default=0.7,
+        default=0.6,
         help="Weight for high quality datasets when sampling (0-1)"
     )
     
@@ -161,31 +161,42 @@ def standardize_columns(df, dataset_name):
             print(f"Warning: Missing columns {missing_cols} in {dataset_name}")
             return None
             
-        # Rename columns to standard names
-        rename_dict = {}
-        if mapping["question"] != "question":
-            rename_dict[mapping["question"]] = "question"
-        if mapping["answer"] != "answer":
-            rename_dict[mapping["answer"]] = "answer"
-            
-        if rename_dict:
-            df = df.rename(columns=rename_dict)
-            print(f"Renamed columns for {dataset_name}: {rename_dict}")
-    
+        # Create a new DataFrame with just the standardized columns.
+        # This is safer than renaming in-place, as it avoids creating duplicate columns
+        # if the original dataframe already has a 'question' or 'answer' column.
+        df_standardized = pd.DataFrame({
+            'question': df[mapping['question']],
+            'answer': df[mapping['answer']]
+        })
+        
+        # For logging, we need the original number of samples
+        original_length = len(df)
+        df = df_standardized # Use the standardized dataframe from now on
+        print(f"Standardized columns for {dataset_name}: {list(df.columns)}")
+
+    else:
+        original_length = len(df)
+
     # Ensure we have the required columns
     if 'question' not in df.columns or 'answer' not in df.columns:
         print(f"Error: {dataset_name} missing 'question' or 'answer' columns after standardization")
         return None
         
-    print(f"Standardized columns for {dataset_name}: {list(df.columns)}")
     # Filter out rows with empty questions or answers before returning
     result_df = df[['question', 'answer']].copy()
     result_df = result_df.dropna(subset=['question', 'answer'])  # Remove NaN
+    
+    # Convert to string and then filter empty strings (handle non-string data types)
+    result_df['question'] = result_df['question'].astype(str)
+    result_df['answer'] = result_df['answer'].astype(str)
+    
     result_df = result_df[
         (result_df['question'].str.strip() != '') & 
-        (result_df['answer'].str.strip() != '')
-    ]  # Remove empty strings
-    print(f"After filtering empty Q&A for {dataset_name}: {len(result_df)} samples (removed {len(df) - len(result_df)})")
+        (result_df['answer'].str.strip() != '') &
+        (result_df['question'].str.strip() != 'nan') & 
+        (result_df['answer'].str.strip() != 'nan')
+    ]  # Remove empty strings and 'nan' strings
+    print(f"After filtering empty Q&A for {dataset_name}: {len(result_df)} samples (removed {original_length - len(result_df)})")
     return result_df
 
 def load_group_datasets(group_info, data_dir):
@@ -306,6 +317,13 @@ def deduplicate_within_group(group_data, model, threshold=0.9):
     
     # Combine all group data
     combined_data = pd.concat([df for df in group_data.values()], ignore_index=True)
+
+    # Sort by quality (descending) before deduplication to prioritize keeping higher-quality samples.
+    # This assumes the underlying deduplication function keeps the first instance of a duplicate.
+    if 'quality' in combined_data.columns:
+        print("Sorting combined data by quality before deduplication...")
+        combined_data = combined_data.sort_values(by='quality', ascending=False, kind='mergesort').reset_index(drop=True)
+
     print(f"Combined data size: {len(combined_data)}")
     
     # Deduplicate within combined dataset
@@ -347,67 +365,150 @@ def deduplicate_across_groups(group_data, previous_embeddings, model, threshold=
     return deduplicated_data
 
 def post_deduplication_sampling(data, target_size, quality_weight=0.7):
-    """Final sampling - downsample if too much data, upsample if too little"""
+    """
+    Final sampling to target size with guaranteed minimum representation from each dataset.
+    This ensures diversity while respecting quality hierarchies.
+    """
     if len(data) == 0:
         print("No data available for sampling")
         return data
-    
+
+    # Handle upsampling if data is smaller than target
     if len(data) < target_size:
         print(f"Available data ({len(data)}) is less than target ({target_size}). Upsampling with replacement...")
-        
-        # Calculate how many times we need to repeat the data and how many extra samples
-        full_repeats = target_size // len(data)
-        remainder = target_size % len(data)
-        
-        upsampled_data = []
-        
-        # Add full repeats of the data
-        for _ in range(full_repeats):
-            upsampled_data.append(data.reset_index(drop=True))
-        
-        # Add partial sample for remainder
-        if remainder > 0:
-            remainder_sample = data.sample(n=remainder, replace=True, random_state=42).reset_index(drop=True)
-            upsampled_data.append(remainder_sample)
-        
-        result = pd.concat(upsampled_data, ignore_index=True)
-        print(f"Upsampled to {len(result)} samples ({full_repeats} full repeats + {remainder} extra samples)")
-        return result
-    
-    elif len(data) == target_size:
+        return data.sample(n=target_size, replace=True, random_state=42).reset_index(drop=True)
+
+    if len(data) == target_size:
         print(f"Data size ({len(data)}) matches target exactly.")
         return data
+
+    print(f"Post-deduplication sampling from {len(data)} to {target_size} with guaranteed diversity.")
+
+    # Get all unique datasets
+    all_datasets = data['dataset_name'].unique()
+    num_datasets = len(all_datasets)
     
-    print(f"Post-deduplication sampling: {len(data)} -> {target_size}")
+    # Calculate minimum samples per dataset to ensure representation
+    min_samples_per_dataset = max(1, target_size // (num_datasets * 4))  # Reserve 25% for minimum representation
+    reserved_for_minimums = min_samples_per_dataset * num_datasets
+    remaining_for_quality_sampling = target_size - reserved_for_minimums
     
-    # Prioritize high quality data
-    high_quality = data[data['quality'] == 1]
-    low_quality = data[data['quality'] == 0]
+    print(f"Guaranteeing minimum {min_samples_per_dataset} samples per dataset ({num_datasets} datasets)")
+    print(f"Reserved {reserved_for_minimums} samples for minimums, {remaining_for_quality_sampling} for quality-based sampling")
     
-    hq_target = int(target_size * quality_weight)
-    lq_target = target_size - hq_target
+    final_sampled_dfs = []
     
-    sampled_data = []
+    # Phase 1: Guarantee minimum representation from each dataset
+    for dataset_name in all_datasets:
+        dataset_data = data[data['dataset_name'] == dataset_name]
+        if len(dataset_data) > 0:
+            sample_size = min(len(dataset_data), min_samples_per_dataset)
+            sampled = dataset_data.sample(n=sample_size, random_state=42)
+            final_sampled_dfs.append(sampled)
+            print(f"Phase 1 - Sampled {sample_size} from {dataset_name} (minimum guarantee)")
     
-    if len(high_quality) > 0:
-        hq_sample_size = min(len(high_quality), hq_target)
-        sampled_data.append(high_quality.sample(n=hq_sample_size, random_state=42))
+    # Get indices of already sampled data
+    if final_sampled_dfs:
+        sampled_indices = pd.concat(final_sampled_dfs).index
+        remaining_data = data.drop(sampled_indices)
+    else:
+        remaining_data = data
     
-    if len(low_quality) > 0 and lq_target > 0:
-        lq_sample_size = min(len(low_quality), lq_target)
-        sampled_data.append(low_quality.sample(n=lq_sample_size, random_state=42))
-    
-    final_data = pd.concat(sampled_data, ignore_index=True) if sampled_data else pd.DataFrame()
-    
-    # If we still don't have enough, sample more from available data
-    if len(final_data) < target_size:
+    # Phase 2: Quality-based sampling from remaining data
+    if remaining_for_quality_sampling > 0 and len(remaining_data) > 0:
+        print(f"Phase 2 - Quality-based sampling of {remaining_for_quality_sampling} samples from remaining {len(remaining_data)} samples")
+        
+        # Get unique quality scores and sort them from highest to lowest
+        quality_tiers = sorted(remaining_data['quality'].unique(), reverse=True)
+        remaining_target = remaining_for_quality_sampling
+        
+        for quality_tier in quality_tiers:
+            if remaining_target <= 0:
+                break
+                
+            tier_data = remaining_data[remaining_data['quality'] == quality_tier]
+            if tier_data.empty:
+                continue
+
+            print(f"  Sampling from quality tier {quality_tier}...")
+            
+            # Group by dataset within the tier to sample evenly
+            grouped = tier_data.groupby('dataset_name')
+            dataset_names = list(grouped.groups.keys())
+            num_datasets_in_tier = len(dataset_names)
+            
+            if num_datasets_in_tier == 0:
+                continue
+                
+            # Determine how many samples to take from this tier
+            samples_to_take_from_tier = min(remaining_target, len(tier_data))
+            
+            # Even allocation within this tier
+            allocations = {name: samples_to_take_from_tier // num_datasets_in_tier for name in dataset_names}
+            remainder = samples_to_take_from_tier % num_datasets_in_tier
+            for i in range(remainder):
+                allocations[dataset_names[i]] += 1
+                
+            sampled_from_tier = []
+            
+            # First pass: sample from each dataset up to its allocation
+            for name, group in grouped:
+                sample_size = min(len(group), allocations[name])
+                if sample_size > 0:
+                    sampled_from_tier.append(group.sample(n=sample_size, random_state=42))
+                    allocations[name] -= sample_size
+                    print(f"    Sampled {sample_size} from {name} in tier {quality_tier}")
+            
+            # Second pass: redistribute unused allocations
+            total_remaining_alloc = sum(allocations.values())
+            if total_remaining_alloc > 0:
+                if sampled_from_tier:
+                    sampled_indices_tier = pd.concat(sampled_from_tier).index
+                    unsampled_tier_data = tier_data.drop(sampled_indices_tier)
+                else:
+                    unsampled_tier_data = tier_data
+
+                if not unsampled_tier_data.empty:
+                    additional_samples = unsampled_tier_data.sample(
+                        n=min(len(unsampled_tier_data), total_remaining_alloc),
+                        random_state=42
+                    )
+                    sampled_from_tier.append(additional_samples)
+                    print(f"    Additional {len(additional_samples)} samples from tier {quality_tier}")
+            
+            if sampled_from_tier:
+                tier_df = pd.concat(sampled_from_tier)
+                final_sampled_dfs.append(tier_df)
+                remaining_target -= len(tier_df)
+
+    if not final_sampled_dfs:
+        # Fallback to simple random sampling if stratified sampling yields nothing
+        print("Warning: Stratified sampling resulted in an empty dataset. Falling back to simple random sampling.")
+        return data.sample(n=target_size, random_state=42)
+
+    final_data = pd.concat(final_sampled_dfs, ignore_index=True)
+
+    # Adjust to the exact target size if we are slightly over/under
+    if len(final_data) > target_size:
+        print(f"Adjusting from {len(final_data)} to {target_size} samples")
+        return final_data.sample(n=target_size, random_state=42).reset_index(drop=True)
+    elif len(final_data) < target_size:
+        # Fill remaining slots with any available data
         remaining_needed = target_size - len(final_data)
-        remaining_data = data[~data.index.isin(final_data.index)]
-        if len(remaining_data) > 0:
-            additional = remaining_data.sample(n=min(len(remaining_data), remaining_needed), random_state=42)
-            final_data = pd.concat([final_data, additional], ignore_index=True)
-    
-    return final_data
+        sampled_indices = final_data.index if hasattr(final_data, 'index') else pd.concat(final_sampled_dfs).index
+        unsampled_data = data[~data.index.isin(sampled_indices)]
+        
+        if not unsampled_data.empty:
+            additional_samples = unsampled_data.sample(
+                n=min(len(unsampled_data), remaining_needed),
+                random_state=42
+            )
+            final_data = pd.concat([final_data, additional_samples], ignore_index=True)
+            print(f"Added {len(additional_samples)} additional samples to reach target")
+
+    print(f"Final sampling complete: {len(final_data)} samples")
+    return final_data.reset_index(drop=True)
+
 
 def process_group(group_name, group_info, data_dir, save_dir, embeddings_dir, model, threshold, quality_weight, previous_embeddings):
     """Process a single group through the deduplication pipeline"""
