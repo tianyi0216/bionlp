@@ -74,7 +74,7 @@ def get_parser():
     parser.add_argument(
         "--threshold",
         type=float,
-        default=0.6,
+        default=0.7,
         help="Threshold for deduplication"
     )
     parser.add_argument(
@@ -90,6 +90,7 @@ def load_model(model_name):
     """Load the embedding model"""
     if model_name == "MedImageInsight":
         import sys
+        import os
         
         # Clone repo if not exists
         if "MedImageInsights" not in os.listdir("."):
@@ -99,24 +100,35 @@ def load_model(model_name):
         medimage_outer_path = os.path.abspath("MedImageInsights")
         medimage_inner_path = os.path.join(medimage_outer_path, "MedImageInsight")
         
-        if medimage_outer_path not in sys.path:
-            sys.path.insert(0, medimage_outer_path)
+        # Insert at the beginning to take priority
         if medimage_inner_path not in sys.path:
             sys.path.insert(0, medimage_inner_path)
+        if medimage_outer_path not in sys.path:
+            sys.path.insert(0, medimage_outer_path)
             
-        # Now import
-        from MedImageInsights.medimageinsightmodel import MedImageInsight
+        print(f"Added paths to sys.path: {medimage_outer_path}, {medimage_inner_path}")
         
-        # Use full path to the model directory inside MedImageInsights
-        model_dir_path = os.path.join("MedImageInsights", "2024.09.27")
+        # Change working directory temporarily to help with imports
+        original_dir = os.getcwd()
+        os.chdir(medimage_outer_path)
         
-        model = MedImageInsight(
-            model_dir=model_dir_path,
-            vision_model_name="medimageinsigt-v1.0.0.pt",
-            language_model_name="language_model.pth"
-        )
-        model.load_model()
-        return model
+        try:
+            # Now import
+            from MedImageInsights.medimageinsightmodel import MedImageInsight
+            
+            # Use full path to the model directory inside MedImageInsights
+            model_dir_path = os.path.join("2024.09.27")  # Relative to MedImageInsights directory
+            
+            model = MedImageInsight(
+                model_dir=model_dir_path,
+                vision_model_name="medimageinsigt-v1.0.0.pt",
+                language_model_name="language_model.pth"
+            )
+            model.load_model()
+            return model
+        finally:
+            # Always restore the original directory
+            os.chdir(original_dir)
 
 def standardize_columns(df, dataset_name):
     """Standardize column names to 'question' and 'answer' based on dataset"""
@@ -166,7 +178,15 @@ def standardize_columns(df, dataset_name):
         return None
         
     print(f"Standardized columns for {dataset_name}: {list(df.columns)}")
-    return df[['question', 'answer']].copy()  # Return only required columns
+    # Filter out rows with empty questions or answers before returning
+    result_df = df[['question', 'answer']].copy()
+    result_df = result_df.dropna(subset=['question', 'answer'])  # Remove NaN
+    result_df = result_df[
+        (result_df['question'].str.strip() != '') & 
+        (result_df['answer'].str.strip() != '')
+    ]  # Remove empty strings
+    print(f"After filtering empty Q&A for {dataset_name}: {len(result_df)} samples (removed {len(df) - len(result_df)})")
+    return result_df
 
 def load_group_datasets(group_info, data_dir):
     """Load all datasets for a specific group"""
@@ -190,9 +210,18 @@ def load_group_datasets(group_info, data_dir):
                     print(f"Loading {dataset_name} from {path}")
                     ds = load_dataset(path)
                     if ds:  # If dataset loaded successfully
+                        # Filter out empty dataframes
+                        non_empty_dfs = [df for df in ds.values() if len(df) > 0]
+                        
+                        if not non_empty_dfs:
+                            print(f"All files empty for {dataset_name}")
+                            continue
+                            
                         # Combine all files in dataset into single dataframe
-                        combined_df = pd.concat([df for df in ds.values()], ignore_index=True)
-                        print(f"Raw loaded {len(combined_df)} samples from {dataset_name}")
+                        # Reset indices of all dataframes first to avoid conflicts
+                        reset_dfs = [df.reset_index(drop=True) for df in non_empty_dfs]
+                        combined_df = pd.concat(reset_dfs, ignore_index=True)
+                        print(f"Raw loaded {len(combined_df)} samples from {dataset_name} ({len(non_empty_dfs)} non-empty files)")
                         
                         # Standardize columns
                         standardized_df = standardize_columns(combined_df, dataset_name)
@@ -241,7 +270,9 @@ def quality_based_sampling(group_data, target_size, quality_weight=0.7):
                 break
                 
             sample_size = min(len(df), samples_per_hq_dataset, remaining_hq_samples)
-            sampled = df.sample(n=sample_size, random_state=42)
+            # Reset index to avoid reindexing errors
+            df_reset = df.reset_index(drop=True)
+            sampled = df_reset.sample(n=sample_size, random_state=42)
             sampled_data.append(sampled)
             remaining_hq_samples -= sample_size
             print(f"Sampled {sample_size} from high quality {dataset_name}")
@@ -256,7 +287,9 @@ def quality_based_sampling(group_data, target_size, quality_weight=0.7):
                 break
                 
             sample_size = min(len(df), samples_per_lq_dataset, remaining_lq_samples)
-            sampled = df.sample(n=sample_size, random_state=42)
+            # Reset index to avoid reindexing errors
+            df_reset = df.reset_index(drop=True)
+            sampled = df_reset.sample(n=sample_size, random_state=42)
             sampled_data.append(sampled)
             remaining_lq_samples -= sample_size
             print(f"Sampled {sample_size} from low quality {dataset_name}")
@@ -314,8 +347,35 @@ def deduplicate_across_groups(group_data, previous_embeddings, model, threshold=
     return deduplicated_data
 
 def post_deduplication_sampling(data, target_size, quality_weight=0.7):
-    """Final sampling if data exceeds target size after deduplication"""
-    if len(data) <= target_size:
+    """Final sampling - downsample if too much data, upsample if too little"""
+    if len(data) == 0:
+        print("No data available for sampling")
+        return data
+    
+    if len(data) < target_size:
+        print(f"Available data ({len(data)}) is less than target ({target_size}). Upsampling with replacement...")
+        
+        # Calculate how many times we need to repeat the data and how many extra samples
+        full_repeats = target_size // len(data)
+        remainder = target_size % len(data)
+        
+        upsampled_data = []
+        
+        # Add full repeats of the data
+        for _ in range(full_repeats):
+            upsampled_data.append(data.reset_index(drop=True))
+        
+        # Add partial sample for remainder
+        if remainder > 0:
+            remainder_sample = data.sample(n=remainder, replace=True, random_state=42).reset_index(drop=True)
+            upsampled_data.append(remainder_sample)
+        
+        result = pd.concat(upsampled_data, ignore_index=True)
+        print(f"Upsampled to {len(result)} samples ({full_repeats} full repeats + {remainder} extra samples)")
+        return result
+    
+    elif len(data) == target_size:
+        print(f"Data size ({len(data)}) matches target exactly.")
         return data
     
     print(f"Post-deduplication sampling: {len(data)} -> {target_size}")
