@@ -7,7 +7,7 @@ import pickle
 import numpy as np
 from collections import defaultdict
 
-from deduplication.QA.utils.qa_dedup_util import (
+from qa_dedup_util import (
     load_dataset, 
     get_embeddings,
     deduplication_within_dataset_qa,
@@ -21,8 +21,8 @@ from subprocess import check_output
 # Dataset grouping based on type and answer format
 DATASET_GROUPS = {
     "literature_mc": {
-        "datasets": ["HoC", "PubMedQA"],
-        "qualities": {"HoC": 0, "PubMedQA": 1},
+        "datasets": ["hoc", "PubMedQA"],
+        "qualities": {"hoc": 0, "PubMedQA": 1},
         "target_size": 2500
     },
     "literature_open": {
@@ -31,8 +31,8 @@ DATASET_GROUPS = {
         "target_size": 2500
     },
     "exam_mc": {
-        "datasets": ["MedMCQA", "JAMA", "Medbullets-5", "Medbullets-4"],
-        "qualities": {"MedMCQA": 1, "JAMA": 1, "Medbullets-5": 1, "Medbullets-4": 1},
+        "datasets": ["MedMCQA", "JAMA", "MedBullets5", "MedBullets4"],
+        "qualities": {"MedMCQA": 1, "JAMA": 1, "MedBullets5": 1, "MedBullets4": 1},
         "target_size": 2500
     },
     "exam_open": {
@@ -58,7 +58,7 @@ def get_parser():
     )
     parser.add_argument(
         "--data_dir",
-        default="dataset",
+        default="converted_qa",
         help="Root directory containing datasets"
     )
     parser.add_argument(
@@ -74,7 +74,7 @@ def get_parser():
     parser.add_argument(
         "--threshold",
         type=float,
-        default=0.9,
+        default=0.6,
         help="Threshold for deduplication"
     )
     parser.add_argument(
@@ -89,17 +89,84 @@ def get_parser():
 def load_model(model_name):
     """Load the embedding model"""
     if model_name == "MedImageInsight":
-        from MedImageInsights.medimageinsightmodel import MedImageInsight
-        if "MedImageInsight" not in os.listdir(""):
+        import sys
+        
+        # Clone repo if not exists
+        if "MedImageInsights" not in os.listdir("."):
             check_output(["git", "clone", "https://huggingface.co/lion-ai/MedImageInsights"])
-
+        
+        # Add both the outer and inner directories to Python path
+        medimage_outer_path = os.path.abspath("MedImageInsights")
+        medimage_inner_path = os.path.join(medimage_outer_path, "MedImageInsight")
+        
+        if medimage_outer_path not in sys.path:
+            sys.path.insert(0, medimage_outer_path)
+        if medimage_inner_path not in sys.path:
+            sys.path.insert(0, medimage_inner_path)
+            
+        # Now import
+        from MedImageInsights.medimageinsightmodel import MedImageInsight
+        
+        # Use full path to the model directory inside MedImageInsights
+        model_dir_path = os.path.join("MedImageInsights", "2024.09.27")
+        
         model = MedImageInsight(
-            model_dir="2024.09.27",
+            model_dir=model_dir_path,
             vision_model_name="medimageinsigt-v1.0.0.pt",
             language_model_name="language_model.pth"
         )
         model.load_model()
         return model
+
+def standardize_columns(df, dataset_name):
+    """Standardize column names to 'question' and 'answer' based on dataset"""
+    print(f"Original columns for {dataset_name}: {list(df.columns)}")
+    
+    # Column mappings for different datasets based on convert_qa_format.py
+    column_mappings = {
+        "hoc": {"question": "question", "answer": "answer"},
+        "PubMedQA": {"question": "question", "answer": "answer"},  
+        "BioNLI": {"question": "question", "answer": "answer"},
+        "NFCorpus": {"question": "question", "answer": "answer"},
+        "BC5CDR": {"question": "question", "answer": "answer"},
+        "MedMCQA": {"question": "question_with_options", "answer": "answer"},
+        "JAMA": {"question": "question", "answer": "answer"},
+        "MedBullets5": {"question": "question", "answer": "answer"},
+        "MedBullets4": {"question": "question", "answer": "answer"},
+        "MedQA-USMLE": {"question": "question", "answer": "answer"},
+        "LiveQA": {"question": "question", "answer": "answer"},
+        "MedicationQA": {"question": "question", "answer": "answer"},
+        "MedQuAD": {"question": "question", "answer": "answer"},
+        "MeQSum": {"question": "question", "answer": "answer"}
+    }
+    
+    if dataset_name in column_mappings:
+        mapping = column_mappings[dataset_name]
+        
+        # Check if expected columns exist
+        missing_cols = [col for col in mapping.values() if col not in df.columns]
+        if missing_cols:
+            print(f"Warning: Missing columns {missing_cols} in {dataset_name}")
+            return None
+            
+        # Rename columns to standard names
+        rename_dict = {}
+        if mapping["question"] != "question":
+            rename_dict[mapping["question"]] = "question"
+        if mapping["answer"] != "answer":
+            rename_dict[mapping["answer"]] = "answer"
+            
+        if rename_dict:
+            df = df.rename(columns=rename_dict)
+            print(f"Renamed columns for {dataset_name}: {rename_dict}")
+    
+    # Ensure we have the required columns
+    if 'question' not in df.columns or 'answer' not in df.columns:
+        print(f"Error: {dataset_name} missing 'question' or 'answer' columns after standardization")
+        return None
+        
+    print(f"Standardized columns for {dataset_name}: {list(df.columns)}")
+    return df[['question', 'answer']].copy()  # Return only required columns
 
 def load_group_datasets(group_info, data_dir):
     """Load all datasets for a specific group"""
@@ -108,8 +175,9 @@ def load_group_datasets(group_info, data_dir):
     
     for dataset_name in group_info["datasets"]:
         try:
-            # Try different possible paths
+            # Try different possible paths - for converted_qa structure, datasets are directly in subdirs
             possible_paths = [
+                os.path.join(data_dir, dataset_name),  # Direct path for converted_qa
                 os.path.join(data_dir, "qa", dataset_name),
                 os.path.join(data_dir, "consumer_questions", dataset_name),
                 os.path.join(data_dir, "bio_med_research", dataset_name),
@@ -124,13 +192,20 @@ def load_group_datasets(group_info, data_dir):
                     if ds:  # If dataset loaded successfully
                         # Combine all files in dataset into single dataframe
                         combined_df = pd.concat([df for df in ds.values()], ignore_index=True)
-                        combined_df['dataset_name'] = dataset_name
-                        combined_df['quality'] = group_info["qualities"][dataset_name]
-                        group_data[dataset_name] = combined_df
-                        dataset_stats[dataset_name] = len(combined_df)  # Track original size
-                        print(f"Loaded {len(combined_df)} samples from {dataset_name}")
-                        dataset_loaded = True
-                        break
+                        print(f"Raw loaded {len(combined_df)} samples from {dataset_name}")
+                        
+                        # Standardize columns
+                        standardized_df = standardize_columns(combined_df, dataset_name)
+                        if standardized_df is not None:
+                            standardized_df['dataset_name'] = dataset_name
+                            standardized_df['quality'] = group_info["qualities"][dataset_name]
+                            group_data[dataset_name] = standardized_df
+                            dataset_stats[dataset_name] = len(standardized_df)  # Track original size
+                            print(f"Successfully loaded {len(standardized_df)} samples from {dataset_name}")
+                            dataset_loaded = True
+                            break
+                        else:
+                            print(f"Failed to standardize columns for {dataset_name}")
             
             if not dataset_loaded:
                 print(f"Warning: Could not load dataset {dataset_name}")
@@ -209,9 +284,12 @@ def deduplicate_within_group(group_data, model, threshold=0.9):
         print("Warning: Missing required 'question' or 'answer' columns")
         return combined_data
     
-    print("Starting within-group deduplication...")
-    deduplicated_data, _, _ = deduplication_within_dataset_qa(combined_data, model, threshold)
-    print(f"After within-group deduplication: {len(deduplicated_data)}")
+    print(f"Starting within-group deduplication with threshold {threshold}...")
+    print(f"Sample question: {combined_data['question'].iloc[0][:100]}...")
+    print(f"Sample answer: {combined_data['answer'].iloc[0][:100]}...")
+    
+    deduplicated_data, removed_questions, removed_answers = deduplication_within_dataset_qa(combined_data, model, threshold)
+    print(f"After within-group deduplication: {len(deduplicated_data)} (removed {len(removed_questions)} by question similarity, {len(removed_answers)} by answer similarity)")
     
     return deduplicated_data
 
