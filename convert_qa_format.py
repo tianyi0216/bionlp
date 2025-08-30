@@ -94,6 +94,83 @@ def parse_qa_xml(file_path):
 
     return pd.DataFrame(data)
 
+def parse_document_xml(file_path):
+    """
+    Parse the XML file into a structured pandas DataFrame.
+
+    Args:
+        file_path (str): Path to the XML file.
+
+    Returns:
+        pd.DataFrame: A DataFrame containing extracted data.
+    """
+    # Parse the XML file
+    tree = ET.parse(file_path)
+    root = tree.getroot()
+
+    # Initialize storage for parsed data
+    data = []
+
+    # Extract document-level information
+    doc_id = root.attrib.get("id", None)
+    source = root.attrib.get("source", None)
+    url = root.attrib.get("url", None)
+
+    # Extract focus information
+    focus_elem = root.find("Focus")
+    if focus_elem is not None:
+        focus = focus_elem.text.strip() if focus_elem.text is not None else None
+    else:
+        focus = None
+
+    # Extract UMLS annotations
+    umls_elem = root.find("FocusAnnotations/UMLS")
+    umls_cuis = []
+    semantic_types = []
+    semantic_group = None
+
+    if umls_elem is not None:
+        umls_cuis = [cui.text.strip() for cui in umls_elem.findall("CUIs/CUI")]
+        semantic_types = [stype.text.strip() for stype in umls_elem.findall("SemanticTypes/SemanticType")]
+        semantic_group_elem = umls_elem.find("SemanticGroup")
+        semantic_group = semantic_group_elem.text.strip() if semantic_group_elem.text is not None else None
+
+    # Extract QA pairs
+    qa_pairs_elem = root.find("QAPairs")
+    if qa_pairs_elem is not None:
+        for qa_pair in qa_pairs_elem.findall("QAPair"):
+            pid = qa_pair.attrib.get("pid", None)
+
+            # Extract question details
+            question_elem = qa_pair.find("Question")
+            question_id = question_elem.attrib.get("qid", None) if question_elem.attrib is not None else None
+            question_type = question_elem.attrib.get("qtype", None) if question_elem.attrib is not None else None
+            question_text = question_elem.text.strip() if question_elem.text is not None else None
+
+            # Extract answer details
+            answer_elem = qa_pair.find("Answer")
+            answer_text = "".join(answer_elem.itertext()).strip() if "".join(answer_elem.itertext()) is not None else None
+
+            # Store the extracted data
+            data.append({
+                "doc_id": doc_id,
+                "source": source,
+                "url": url,
+                "focus": focus,
+                "umls_cuis": umls_cuis,
+                "semantic_types": semantic_types,
+                "semantic_group": semantic_group,
+                "pid": pid,
+                "question_id": question_id,
+                "question_type": question_type,
+                "question_text": question_text,
+                "answer_text": answer_text
+            })
+
+    # Convert data to pandas DataFrame
+    df = pd.DataFrame(data)
+    return df
+
 
 
 def load_dataset(path, filetype = "csv"):
@@ -118,7 +195,7 @@ def load_dataset(path, filetype = "csv"):
         print(f"Found {len(all_files)} XML files")
         ds = {}
         for f in tqdm(all_files, desc="Loading XML files"):
-            ds[f] = parse_xml(f)
+            ds[f] = parse_document_xml(f)
         return ds
     elif filetype == "jsonl":
         all_files = []
@@ -1214,5 +1291,6 @@ def main():
 
 
 if __name__ == "__main__":
-    success = main()
-    exit(0 if success else 1)
+    # success = main()
+    # exit(0 if success else 1)
+    convert_medquad()
