@@ -354,27 +354,12 @@ def deduplicate_within_group(group_data, model, threshold=0.9, group_name=None):
         print(f"Generating embeddings for {len(questions)} questions...")
         question_embeddings = get_embeddings(questions, model)
         
-        # Compute similarity matrix for questions only
-        print("Computing question similarity matrix...")
-        similarity_matrix = compute_similarity_chunked(question_embeddings, question_embeddings)
+        # Use the existing compute_similarity_chunked function to find duplicates
+        print("Finding question duplicates...")
+        duplicates_to_remove = compute_similarity_chunked(question_embeddings, threshold)
         
-        # Find duplicates based on question similarity only
-        duplicates_to_remove = set()
-        n = len(combined_data)
-        
-        print(f"Finding duplicates with threshold {threshold}...")
-        for i in range(n):
-            if i in duplicates_to_remove:
-                continue
-            for j in range(i + 1, n):
-                if j in duplicates_to_remove:
-                    continue
-                if similarity_matrix[i][j] >= threshold:
-                    # Keep the higher quality one (already sorted by quality)
-                    duplicates_to_remove.add(j)
-        
-        # Remove duplicates
-        indices_to_keep = [i for i in range(n) if i not in duplicates_to_remove]
+        # Remove duplicates (keep the ones not in the removal set)
+        indices_to_keep = [i for i in range(len(combined_data)) if i not in duplicates_to_remove]
         deduplicated_data = combined_data.iloc[indices_to_keep].reset_index(drop=True)
         
         print(f"After question-only deduplication: {len(deduplicated_data)} (removed {len(duplicates_to_remove)} by question similarity)")
