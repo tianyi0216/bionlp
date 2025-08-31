@@ -310,8 +310,8 @@ def quality_based_sampling(group_data, target_size, quality_weight=0.7):
     else:
         return pd.DataFrame()
 
-def deduplicate_within_group(group_data, model, threshold=0.9):
-    """Deduplicate within a group of datasets"""
+def deduplicate_within_group(group_data, model, threshold=0.9, group_name=None):
+    """Deduplicate within a group of datasets with preservation of dataset diversity"""
     if not group_data:
         return pd.DataFrame()
     
@@ -339,8 +339,91 @@ def deduplicate_within_group(group_data, model, threshold=0.9):
     print(f"Sample question: {combined_data['question'].iloc[0][:100]}...")
     print(f"Sample answer: {combined_data['answer'].iloc[0][:100]}...")
     
-    deduplicated_data, removed_questions, removed_answers = deduplication_within_dataset_qa(combined_data, model, threshold)
-    print(f"After within-group deduplication: {len(deduplicated_data)} (removed {len(removed_questions)} by question similarity, {len(removed_answers)} by answer similarity)")
+    # Get dataset distribution before deduplication
+    dataset_counts_before = combined_data['dataset_name'].value_counts()
+    print("Dataset distribution before deduplication:")
+    for dataset, count in dataset_counts_before.items():
+        print(f"  {dataset}: {count} samples")
+    
+    # Special handling for exam_mc: only deduplicate on questions, not answers
+    if group_name == "exam_mc":
+        print("Special handling for exam_mc: deduplicating only on question similarity (not answers)")
+        
+        # Generate embeddings for questions only
+        questions = combined_data['question'].tolist()
+        print(f"Generating embeddings for {len(questions)} questions...")
+        question_embeddings = get_embeddings(questions, model)
+        
+        # Compute similarity matrix for questions only
+        print("Computing question similarity matrix...")
+        similarity_matrix = compute_similarity_chunked(question_embeddings, question_embeddings)
+        
+        # Find duplicates based on question similarity only
+        duplicates_to_remove = set()
+        n = len(combined_data)
+        
+        print(f"Finding duplicates with threshold {threshold}...")
+        for i in range(n):
+            if i in duplicates_to_remove:
+                continue
+            for j in range(i + 1, n):
+                if j in duplicates_to_remove:
+                    continue
+                if similarity_matrix[i][j] >= threshold:
+                    # Keep the higher quality one (already sorted by quality)
+                    duplicates_to_remove.add(j)
+        
+        # Remove duplicates
+        indices_to_keep = [i for i in range(n) if i not in duplicates_to_remove]
+        deduplicated_data = combined_data.iloc[indices_to_keep].reset_index(drop=True)
+        
+        print(f"After question-only deduplication: {len(deduplicated_data)} (removed {len(duplicates_to_remove)} by question similarity)")
+        
+    else:
+        # Standard deduplication for other groups (both questions and answers)
+        deduplicated_data, removed_questions, removed_answers = deduplication_within_dataset_qa(combined_data, model, threshold)
+        print(f"After within-group deduplication: {len(deduplicated_data)} (removed {len(removed_questions)} by question similarity, {len(removed_answers)} by answer similarity)")
+    
+    # Check dataset distribution after deduplication
+    if 'dataset_name' in deduplicated_data.columns:
+        dataset_counts_after = deduplicated_data['dataset_name'].value_counts()
+        print("Dataset distribution after deduplication:")
+        for dataset, count in dataset_counts_after.items():
+            print(f"  {dataset}: {count} samples")
+        
+        # Check if any dataset was completely eliminated
+        eliminated_datasets = []
+        for dataset in dataset_counts_before.index:
+            if dataset not in dataset_counts_after.index:
+                eliminated_datasets.append(dataset)
+        
+        if eliminated_datasets:
+            print(f"WARNING: Datasets completely eliminated by deduplication: {eliminated_datasets}")
+            
+            # Try to recover some samples from eliminated datasets by using a higher threshold
+            print("Attempting to recover samples from eliminated datasets...")
+            
+            # Get samples from eliminated datasets from original data
+            eliminated_data = combined_data[combined_data['dataset_name'].isin(eliminated_datasets)]
+            
+            if len(eliminated_data) > 0:
+                # For each eliminated dataset, try to find samples that don't conflict with current deduplicated data
+                recovery_samples = []
+                
+                for dataset in eliminated_datasets:
+                    dataset_samples = eliminated_data[eliminated_data['dataset_name'] == dataset]
+                    
+                    # Take a small sample from this dataset (up to 10 samples)
+                    sample_size = min(10, len(dataset_samples))
+                    if sample_size > 0:
+                        recovered = dataset_samples.sample(n=sample_size, random_state=42)
+                        recovery_samples.append(recovered)
+                        print(f"  Recovered {sample_size} samples from {dataset}")
+                
+                if recovery_samples:
+                    recovery_df = pd.concat(recovery_samples, ignore_index=True)
+                    deduplicated_data = pd.concat([deduplicated_data, recovery_df], ignore_index=True)
+                    print(f"Added {len(recovery_df)} recovery samples. New total: {len(deduplicated_data)}")
     
     return deduplicated_data
 
@@ -523,12 +606,15 @@ def process_group(group_name, group_info, data_dir, save_dir, embeddings_dir, mo
     # Pre-sampling for very large datasets to speed up processing
     total_samples = sum(len(df) for df in group_data.values())
     if total_samples > 50000:  # If too many samples, pre-sample
-        print(f"Large dataset detected ({total_samples} samples), pre-sampling...")
-        pre_sampled = quality_based_sampling(group_data, min(20000, total_samples), quality_weight)
+        print(f"Large dataset detected ({total_samples} samples), pre-sampling with diversity preservation...")
+        
+        # Use diversity-aware pre-sampling instead of the old quality_based_sampling
+        combined_for_presampling = pd.concat([df for df in group_data.values()], ignore_index=True)
+        pre_sampled = post_deduplication_sampling(combined_for_presampling, min(20000, total_samples), quality_weight)
         group_data = {f"{group_name}_presampled": pre_sampled}
     
     # Within-group deduplication
-    deduplicated_data = deduplicate_within_group(group_data, model, threshold)
+    deduplicated_data = deduplicate_within_group(group_data, model, threshold, group_name)
     if len(deduplicated_data) == 0:
         print(f"No data remaining after within-group deduplication for {group_name}")
         return None, original_stats
