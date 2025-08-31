@@ -13,17 +13,73 @@ import re
 # Initialize medical embedding model (cached)
 _medical_model = None
 
-def get_medical_embedding_model():
-    """Load medical embedding model (cached)"""
+def get_medical_embedding_model(model_type="BiomedBERT"):
+    """Load medical embedding model (BiomedBERT by default, or MedImageInsight)"""
     global _medical_model
     if _medical_model is None:
-        # Using BioBERT or ClinicalBERT - trained on medical texts
-        try:
-            _medical_model = SentenceTransformer('pritamdeka/BioBERT-mnli-snli-scinli-scitail-mednli-stsb')
-        except:
-            # Fallback to general medical model
-            _medical_model = SentenceTransformer('sentence-transformers/all-MiniLM-L6-v2')
-            print("Warning: Using general embedding model as fallback")
+        if model_type == "BiomedBERT":
+            try:
+                print("Loading BiomedBERT model for medical similarity evaluation...")
+                _medical_model = SentenceTransformer('microsoft/BiomedNLP-BiomedBERT-base-uncased-abstract-fulltext')
+                print("Successfully loaded BiomedBERT model")
+            except Exception as e:
+                print(f"Failed to load BiomedBERT: {e}")
+                print("Falling back to general BioBERT model...")
+                try:
+                    _medical_model = SentenceTransformer('pritamdeka/BioBERT-mnli-snli-scinli-scitail-mednli-stsb')
+                except:
+                    _medical_model = SentenceTransformer('sentence-transformers/all-MiniLM-L6-v2')
+                    print("Warning: Using general embedding model as fallback")
+        
+        elif model_type == "MedImageInsight":
+            try:
+                import sys
+                import os
+                from subprocess import check_output
+                
+                # Clone repo if not exists (same logic as in deduplicate_grouped_qa.py)
+                if "MedImageInsights" not in os.listdir("."):
+                    check_output(["git", "clone", "https://huggingface.co/lion-ai/MedImageInsights"])
+                
+                # Add both the outer and inner directories to Python path
+                medimage_outer_path = os.path.abspath("MedImageInsights")
+                medimage_inner_path = os.path.join(medimage_outer_path, "MedImageInsight")
+                
+                # Insert at the beginning to take priority
+                if medimage_inner_path not in sys.path:
+                    sys.path.insert(0, medimage_inner_path)
+                if medimage_outer_path not in sys.path:
+                    sys.path.insert(0, medimage_outer_path)
+                
+                # Change working directory temporarily to help with imports
+                original_dir = os.getcwd()
+                os.chdir(medimage_outer_path)
+                
+                try:
+                    # Now import
+                    from MedImageInsights.medimageinsightmodel import MedImageInsight
+                    
+                    # Use full path to the model directory inside MedImageInsights
+                    model_dir_path = os.path.join("2024.09.27")  # Relative to MedImageInsights directory
+                    
+                    _medical_model = MedImageInsight(
+                        model_dir=model_dir_path,
+                        vision_model_name="medimageinsigt-v1.0.0.pt",
+                        language_model_name="language_model.pth"
+                    )
+                    _medical_model.load_model()
+                    print("Successfully loaded MedImageInsight model for metrics")
+                finally:
+                    # Always restore the original directory
+                    os.chdir(original_dir)
+                    
+            except Exception as e:
+                print(f"Warning: Could not load MedImageInsight model ({e}), falling back to BiomedBERT")
+                _medical_model = SentenceTransformer('microsoft/BiomedNLP-BiomedBERT-base-uncased-abstract-fulltext')
+        
+        else:
+            raise ValueError(f"Unknown model_type: {model_type}. Supported: 'BiomedBERT', 'MedImageInsight'")
+    
     return _medical_model
 
 def normalize_text(text):
@@ -236,13 +292,14 @@ def open_bleu_score(predictions, targets):
     
     return float(np.mean(bleu_scores))
 
-def open_medical_similarity(predictions, targets):
+def open_medical_similarity(predictions, targets, model_type="BiomedBERT"):
     """
-    Medical semantic similarity using BioBERT embeddings.
+    Medical semantic similarity using medical embeddings.
     
     Args:
         predictions: List of predicted answer strings
         targets: List of ground truth answer strings
+        model_type: Type of model to use ("BiomedBERT" or "MedImageInsight")
     
     Returns:
         float: Average cosine similarity between medical embeddings (0 to 1)
@@ -250,17 +307,32 @@ def open_medical_similarity(predictions, targets):
     if len(predictions) != len(targets):
         raise ValueError(f"Predictions ({len(predictions)}) and targets ({len(targets)}) must have same length")
     
-    model = get_medical_embedding_model()
+    model = get_medical_embedding_model(model_type)
     
-    # Get embeddings for all predictions and targets
-    pred_embeddings = model.encode(predictions)
-    target_embeddings = model.encode(targets)
+    # Check if it's MedImageInsight model or SentenceTransformer
+    if hasattr(model, 'encode') and hasattr(model.encode, '__call__'):
+        # Try MedImageInsight first, then fallback to SentenceTransformer
+        try:
+            # MedImageInsight encode method returns dict with 'text_embeddings'
+            pred_result = model.encode(texts=predictions)
+            target_result = model.encode(texts=targets)
+            
+            pred_embeddings = pred_result['text_embeddings']
+            target_embeddings = target_result['text_embeddings']
+        except:
+            # Fallback to SentenceTransformer interface (BiomedBERT)
+            pred_embeddings = model.encode(predictions)
+            target_embeddings = model.encode(targets)
+    else:
+        # SentenceTransformer fallback
+        pred_embeddings = model.encode(predictions)
+        target_embeddings = model.encode(targets)
     
     # Calculate cosine similarities
     similarities = []
     for pred_emb, target_emb in zip(pred_embeddings, target_embeddings):
         similarity = cosine_similarity([pred_emb], [target_emb])[0][0]
-        similarities.append(similarity)
+        similarities.append(max(0, similarity))  # Ensure non-negative
     
     return float(np.mean(similarities))
 

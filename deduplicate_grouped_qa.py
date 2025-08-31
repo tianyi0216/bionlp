@@ -9,13 +9,95 @@ from collections import defaultdict
 
 from qa_dedup_util import (
     load_dataset, 
-    get_embeddings,
     deduplication_within_dataset_qa,
     deduplicate_across_datasets_qa,
-    calculate_and_save_embeddings,
     compute_similarity_chunked,
     compute_similarity_between_datasets_chunked
 )
+
+def get_embeddings(texts, model, batch_size=64):
+    """
+    Get embeddings for texts, handling both MedImageInsight and BiomedBERT models
+    """
+    import numpy as np
+    from tqdm import tqdm
+    
+    embeddings = []
+    for i in tqdm(range(0, len(texts), batch_size), desc="Generating embeddings"):
+        batch_texts = texts[i:i+batch_size]
+        
+        # Handle different model types
+        if hasattr(model, 'encode') and hasattr(model, 'load_model'):
+            # MedImageInsight model
+            batch_embeddings = model.encode(texts=batch_texts)['text_embeddings']
+        elif hasattr(model, 'encode'):
+            # SentenceTransformer model (BiomedBERT)
+            batch_embeddings = model.encode(batch_texts)
+        else:
+            raise ValueError("Unknown model type. Model must have an 'encode' method.")
+        
+        embeddings.extend(batch_embeddings)
+    
+    return np.array(embeddings)
+
+def calculate_and_save_embeddings(dataset, dataset_name, model, save_dir="embeddings_cache", batch_size=128):
+    """
+    Compute and save embeddings for a QA dataset, handling both model types.
+    
+    Args:
+        dataset (pd.DataFrame): Dataset containing "question" and "answer" columns.
+        dataset_name (str): Name of the dataset for unique file identification.
+        model: The embedding model (MedImageInsight or BiomedBERT).
+        save_dir (str): Directory where embeddings will be saved.
+        batch_size (int): Batch size for generating embeddings.
+    
+    Returns:
+        dict: A dictionary containing question and answer embeddings.
+    """
+    import os
+    import pickle
+    
+    # Ensure save directory exists
+    if not os.path.exists(save_dir):
+        os.makedirs(save_dir)
+    
+    # File paths for embeddings
+    question_embedding_file = os.path.join(save_dir, f"{dataset_name}_question_embeddings.pkl")
+    answer_embedding_file = os.path.join(save_dir, f"{dataset_name}_answer_embeddings.pkl")
+    
+    # Check if embeddings already exist
+    if os.path.exists(question_embedding_file) and os.path.exists(answer_embedding_file):
+        print(f"Loading cached embeddings for {dataset_name}...")
+        with open(question_embedding_file, "rb") as qf:
+            question_embeddings = pickle.load(qf)
+        with open(answer_embedding_file, "rb") as af:
+            answer_embeddings = pickle.load(af)
+    else:
+        # Compute embeddings for questions
+        print(f"Generating question embeddings for {dataset_name}...")
+        questions = dataset["question"].tolist()
+        question_embeddings = get_embeddings(questions, model, batch_size)
+        
+        # Save question embeddings
+        with open(question_embedding_file, "wb") as qf:
+            pickle.dump(question_embeddings, qf)
+        print(f"Saved question embeddings for {dataset_name}.")
+        
+        # Compute embeddings for answers
+        print(f"Generating answer embeddings for {dataset_name}...")
+        answers = dataset["answer"].tolist()
+        answer_embeddings = get_embeddings(answers, model, batch_size)
+        
+        # Save answer embeddings
+        with open(answer_embedding_file, "wb") as af:
+            pickle.dump(answer_embeddings, af)
+        print(f"Saved answer embeddings for {dataset_name}.")
+    
+    return {
+        "questions": question_embeddings,
+        "answers": answer_embeddings
+    }
+
 from subprocess import check_output
 
 # Dataset grouping based on type and answer format
@@ -54,7 +136,8 @@ def get_parser():
     parser.add_argument(
         "--model", 
         default="MedImageInsight",
-        help="Embedding model to use"
+        choices=["MedImageInsight", "BiomedBERT"],
+        help="Embedding model to use: 'MedImageInsight' or 'BiomedBERT'"
     )
     parser.add_argument(
         "--data_dir",
@@ -129,6 +212,28 @@ def load_model(model_name):
         finally:
             # Always restore the original directory
             os.chdir(original_dir)
+    
+    elif model_name == "BiomedBERT":
+        from sentence_transformers import SentenceTransformer
+        import torch
+        print("Loading BiomedBERT model from HuggingFace...")
+        
+        # Load the Microsoft BiomedBERT model
+        model = SentenceTransformer('microsoft/BiomedNLP-BiomedBERT-base-uncased-abstract-fulltext')
+        
+        # Force GPU usage if available
+        if torch.cuda.is_available():
+            model = model.cuda()
+            print(f"BiomedBERT model loaded successfully on GPU: {torch.cuda.get_device_name()}")
+            print(f"GPU memory allocated: {torch.cuda.memory_allocated() / 1024**3:.2f} GB")
+        else:
+            print("CUDA not available, using CPU")
+            print("BiomedBERT model loaded successfully on CPU")
+        
+        return model
+    
+    else:
+        raise ValueError(f"Unknown model name: {model_name}. Supported models: 'MedImageInsight', 'BiomedBERT'")
 
 def standardize_columns(df, dataset_name):
     """Standardize column names to 'question' and 'answer' based on dataset"""
