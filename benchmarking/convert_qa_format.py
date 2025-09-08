@@ -232,38 +232,62 @@ def convert_medication_qa(path = "dataset/MedicationQA/medicationqa_train_fullte
         os.makedirs("converted_qa/MedicationQA", exist_ok = True)
     df.to_csv("converted_qa/MedicationQA/medicationqa_converted.csv", index = False)
 
+def format_pubmedqa_dataset(df):
+    """Format PubMedQA as multiple choice with Yes/No/Maybe options"""
+    # Create formatted question with MC options
+    df['question'] = df['QUESTION'].apply(
+        lambda q: f"Answer the following biomedical question by selecting from the options [\"Yes\", \"No\", or \"Maybe\"]: {q}"
+    )
+    
+    # Use final_decision as the short answer (keep as Yes/No/Maybe)
+    df['answer'] = df['final_decision'].str.capitalize()  # Yes, No, Maybe
+    
+    # Create detailed answer combining decision and explanation
+    df['answer_long'] = df.apply(
+        lambda row: f"Answer is {row['final_decision'].capitalize()} because {row['LONG_ANSWER']}" if pd.notna(row['LONG_ANSWER']) else f"Answer is {row['final_decision'].capitalize()}",
+        axis=1
+    )
+    
+    return df
+
 def convert_pubmedqa(directory = "dataset/PubMedQA"):
     ds_json = load_dataset(directory, filetype = "json")
     pubmedqa1 = ds_json["dataset/PubMedQA/ori_pqaa.json"].T
     pubmedqa2 = ds_json["dataset/PubMedQA/ori_pqau.json"].T
     pubmedqa3 = ds_json["dataset/PubMedQA/ori_pqal.json"].T
 
-    pubmedqa1.rename(columns = {"QUESTION": "question", "LONG_ANSWER": "answer"}, inplace = True)
-    pubmedqa2.rename(columns = {"QUESTION": "question", "LONG_ANSWER": "answer"}, inplace = True)
-    pubmedqa3.rename(columns = {"QUESTION": "question", "LONG_ANSWER": "answer"}, inplace = True)
-    pubmedqa1.dropna(subset = ["question", "answer"], inplace = True)
-    pubmedqa2.dropna(subset = ["question", "answer"], inplace = True)
-    pubmedqa3.dropna(subset = ["question", "answer"], inplace = True)
+    # Format each dataset as MC
+    pubmedqa1_formatted = format_pubmedqa_dataset(pubmedqa1.copy())
+    pubmedqa2_formatted = format_pubmedqa_dataset(pubmedqa2.copy())
+    pubmedqa3_formatted = format_pubmedqa_dataset(pubmedqa3.copy())
+    
+    # Keep only necessary columns and drop NaN
+    for df in [pubmedqa1_formatted, pubmedqa2_formatted, pubmedqa3_formatted]:
+        df.dropna(subset = ["question", "answer"], inplace = True)
 
     if not os.path.exists("converted_qa/PubMedQA"):
         os.makedirs("converted_qa/PubMedQA", exist_ok = True)
-    pubmedqa1.to_csv("converted_qa/PubMedQA/pubmedqa1_converted.csv", index = False)
-    pubmedqa2.to_csv("converted_qa/PubMedQA/pubmedqa2_converted.csv", index = False)
-    pubmedqa3.to_csv("converted_qa/PubMedQA/pubmedqa3_converted.csv", index = False)
+    
+    # Save with only question, answer, answer_long columns
+    pubmedqa1_formatted[['question', 'answer', 'answer_long']].to_csv("converted_qa/PubMedQA/pubmedqa1_converted.csv", index = False)
+    pubmedqa2_formatted[['question', 'answer', 'answer_long']].to_csv("converted_qa/PubMedQA/pubmedqa2_converted.csv", index = False)
+    pubmedqa3_formatted[['question', 'answer', 'answer_long']].to_csv("converted_qa/PubMedQA/pubmedqa3_converted.csv", index = False)
 
 
 def format_medmcqa_dataset(df):
     # Create formatted question with options
-    df['question_with_options'] = df.apply(
-        lambda row: f"{row['question']} The choices are option a {row['opa']}, b {row['opb']}, c {row['opc']}, d {row['opd']}", 
+    df['question'] = df.apply(
+        lambda row: f"Answer the following medical question by selecting from the options [A, B, C, D]: {row['question']} A) {row['opa']}, B) {row['opb']}, C) {row['opc']}, D) {row['opd']}", 
         axis=1
     )
     
-    # Create formatted answer with explanation
-    # Map cop (correct option) number to letter
-    option_map = {1: 'a', 2: 'b', 3: 'c', 4: 'd'}
-    df['answer'] = df.apply(
-        lambda row: f"Answer is {option_map[row['cop']]} because {row['exp']}", 
+    # Map cop (correct option) number to letter for short answer
+    option_map = {1: 'A', 2: 'B', 3: 'C', 4: 'D'}
+    df['answer'] = df['cop'].map(option_map)
+    
+    # Create detailed answer with explanation
+    df['answer_long'] = df.apply(
+        lambda row: f"Answer is {option_map[row['cop']]} because {row['exp']}" if pd.notna(row['exp']) else f"Answer is {option_map[row['cop']]}", 
         axis=1
     )
     
@@ -280,8 +304,8 @@ def convert_medmcqa(directory = "dataset/MedMCQA/data"):
     if not os.path.exists("converted_qa/MedMCQA"):
         os.makedirs("converted_qa/MedMCQA", exist_ok = True)
    
-    medmcqa_train_formatted.to_csv("converted_qa/MedMCQA/medmcqa_train_converted.csv", index = False)
-    medmcqa_dev_formatted.to_csv("converted_qa/MedMCQA/medmcqa_dev_converted.csv", index = False)
+    medmcqa_train_formatted[['question', 'answer', 'answer_long']].to_csv("converted_qa/MedMCQA/medmcqa_train_converted.csv", index = False)
+    medmcqa_dev_formatted[['question', 'answer', 'answer_long']].to_csv("converted_qa/MedMCQA/medmcqa_dev_converted.csv", index = False)
 
 
 def convert_medqa_usmle(directory = "dataset/MedQA-USMLE/questions/US"):
@@ -427,16 +451,9 @@ def convert_medquad(directory = "dataset/MedQuAD"):
         medquad_ds[k] = medquad_ds[k].rename(columns = {"question_text": "question", "answer_text": "answer"})
         medquad_ds[k].to_csv("converted_qa/MedQuAD/" + k.split("/")[-1] + "_converted.csv", index = False)
 
-def convert_hoc(directory = "dataset/hoc"):
-    hoc_train = pd.read_csv(directory + "/hoc_train_fulltext.csv")
-    hoc_dev = pd.read_csv(directory + "/hoc_val_fulltext.csv")
-    hoc_test = pd.read_csv(directory + "/hoc_test_fulltext.csv")
-
-    # rename columns
-    hoc_train = hoc_train.rename(columns = {"text": "question", "label": "answer"})
-    hoc_dev = hoc_dev.rename(columns = {"text": "question", "label": "answer"})
-    hoc_test = hoc_test.rename(columns = {"text": "question", "label": "answer"})
-
+def format_hoc_dataset(df):
+    """Format HOC as multiple choice with cancer hallmark options"""
+    
     answer_mapping = {
         0: "None of the above",
         1: "Sustaining proliferative signaling (PS)",
@@ -450,7 +467,10 @@ def convert_hoc(directory = "dataset/hoc"):
         9: "Deregulating cellular energetics (CE)",
         10: "Avoiding immune destruction (ID)"
     }
-
+    
+    # Map numbers to letters (0->A, 1->B, etc.)
+    number_to_letter = {i: chr(65 + i) for i in range(11)}  # A, B, C, D, E, F, G, H, I, J, K
+    
     def parse_answer_manual(answer_str):
         # Remove brackets and split by spaces
         inner = answer_str.strip('[]')
@@ -458,24 +478,45 @@ def convert_hoc(directory = "dataset/hoc"):
             return []
         return [int(x) for x in inner.split() if x.strip()]
 
-    hoc_train['answer_list'] = hoc_train['answer'].apply(parse_answer_manual)
-    hoc_dev['answer_list'] = hoc_dev['answer'].apply(parse_answer_manual)
-    hoc_test['answer_list'] = hoc_test['answer'].apply(parse_answer_manual)
-
-    # add prefixes to questions and answers
-    hoc_train["question"] = "What is the hallmark of cancer of the following passage? " + hoc_train["question"] + "Choose from the following options: " + str(answer_mapping.values())
-    hoc_dev["question"] = "What is the hallmark of cancer of the following passage? " + hoc_dev["question"] + "Choose from the following options: " + str(answer_mapping.values())
-    hoc_test["question"] = "What is the hallmark of cancer of the following passage? " + hoc_test["question"] + "Choose from the following options: " + str(answer_mapping.values())
+    # Parse the answer list
+    df['answer_list'] = df['label'].apply(parse_answer_manual)
     
-    hoc_train["answer"] = "The answer is " + hoc_train["answer_list"].apply(lambda x: ", ".join([answer_mapping[i] for i in x]))
-    hoc_dev["answer"] = "The answer is " + hoc_dev["answer_list"].apply(lambda x: ", ".join([answer_mapping[i] for i in x]))
-    hoc_test["answer"] = "The answer is " + hoc_test["answer_list"].apply(lambda x: ", ".join([answer_mapping[i] for i in x]))
+    # Create formatted question with all options
+    options_text = "\n".join([f"{chr(65 + i)}) {desc}" for i, desc in answer_mapping.items()])
+    
+    df['question'] = df['text'].apply(
+        lambda passage: f"Answer the following biomedical question by selecting from the options [A, B, C, D, E, F, G, H, I, J, K]: What cancer hallmarks are present in the following passage? {passage}\n\nOptions:\n{options_text}"
+    )
+    
+    # Create short answer (letters like "A, C, F" for multiple selections)
+    df['answer'] = df['answer_list'].apply(
+        lambda x: ", ".join([number_to_letter[i] for i in sorted(x)]) if x else "A"  # Default to A (None of the above) if empty
+    )
+    
+    # Create detailed answer
+    df['answer_long'] = df['answer_list'].apply(
+        lambda x: "The answer is " + ", ".join([answer_mapping[i] for i in sorted(x)]) if x else "The answer is None of the above"
+    )
+    
+    return df
+
+def convert_hoc(directory = "dataset/hoc"):
+    hoc_train = pd.read_csv(directory + "/hoc_train_fulltext.csv")
+    hoc_dev = pd.read_csv(directory + "/hoc_val_fulltext.csv")
+    hoc_test = pd.read_csv(directory + "/hoc_test_fulltext.csv")
+
+    # Format each dataset as MC
+    hoc_train_formatted = format_hoc_dataset(hoc_train.copy())
+    hoc_dev_formatted = format_hoc_dataset(hoc_dev.copy())
+    hoc_test_formatted = format_hoc_dataset(hoc_test.copy())
 
     if not os.path.exists("converted_qa/hoc"):
         os.makedirs("converted_qa/hoc", exist_ok = True)
-    hoc_train.to_csv("converted_qa/hoc/hoc_train_converted.csv", index = False)
-    hoc_dev.to_csv("converted_qa/hoc/hoc_dev_converted.csv", index = False)
-    hoc_test.to_csv("converted_qa/hoc/hoc_test_converted.csv", index = False)
+    
+    # Save with only question, answer, answer_long columns
+    hoc_train_formatted[['question', 'answer', 'answer_long']].to_csv("converted_qa/hoc/hoc_train_converted.csv", index = False)
+    hoc_dev_formatted[['question', 'answer', 'answer_long']].to_csv("converted_qa/hoc/hoc_dev_converted.csv", index = False)
+    hoc_test_formatted[['question', 'answer', 'answer_long']].to_csv("converted_qa/hoc/hoc_test_converted.csv", index = False)
 
 def convert_nfcorpus(directory = "dataset/NFCorpus"):
     def parse_queries_file(file_path):
@@ -777,14 +818,18 @@ def convert_jama(dev_file="dataset/JAMA/dev.jsonl", test_file="dataset/JAMA/test
                         answer_idx = data.get('answer_idx', '')
                         
                         # Create full question with options
-                        full_question = f"Answer the following medical question: {question_text} The choices are: A) {opa}, B) {opb}, C) {opc}, D) {opd}"
+                        full_question = f"Answer the following medical question by selecting from the options [A, B, C, D]: {question_text} A) {opa}, B) {opb}, C) {opc}, D) {opd}"
                         
-                        # Create answer
-                        answer = f"The answer is option {answer_idx}"
+                        # Create short answer (just the letter)
+                        answer = answer_idx.upper()
+                        
+                        # Create detailed answer
+                        answer_long = f"The answer is option {answer_idx}"
                         
                         qa_data.append({
                             "question": full_question,
-                            "answer": answer
+                            "answer": answer,
+                            "answer_long": answer_long
                         })
                         
                     except json.JSONDecodeError:
@@ -844,16 +889,20 @@ def convert_medbullets5(dev_file="dataset/MedBullets-5/dev.jsonl", test_file="da
                         
                         # Create full question with options
                         if choice_e:  # 5 options
-                            full_question = f"Answer the following medical question: {question_text} The choices are: A) {choice_a}, B) {choice_b}, C) {choice_c}, D) {choice_d}, E) {choice_e}"
+                            full_question = f"Answer the following medical question by selecting from the options [A, B, C, D, E]: {question_text} A) {choice_a}, B) {choice_b}, C) {choice_c}, D) {choice_d}, E) {choice_e}"
                         else:  # 4 options
-                            full_question = f"Answer the following medical question: {question_text} The choices are: A) {choice_a}, B) {choice_b}, C) {choice_c}, D) {choice_d}"
+                            full_question = f"Answer the following medical question by selecting from the options [A, B, C, D]: {question_text} A) {choice_a}, B) {choice_b}, C) {choice_c}, D) {choice_d}"
                         
-                        # Create answer
-                        answer = f"The answer is option {answer_idx}"
+                        # Create short answer (just the letter)
+                        answer = answer_idx.upper()
+                        
+                        # Create detailed answer
+                        answer_long = f"The answer is option {answer_idx}"
                         
                         qa_data.append({
                             "question": full_question,
-                            "answer": answer
+                            "answer": answer,
+                            "answer_long": answer_long
                         })
                         
                     except json.JSONDecodeError:
@@ -913,16 +962,20 @@ def convert_medbullets4(dev_file="dataset/MedBullets-4/dev.jsonl", test_file="da
                         
                         # Create full question with options
                         if choice_e:  # 5 options
-                            full_question = f"Answer the following medical question: {question_text} The choices are: A) {choice_a}, B) {choice_b}, C) {choice_c}, D) {choice_d}, E) {choice_e}"
+                            full_question = f"Answer the following medical question by selecting from the options [A, B, C, D, E]: {question_text} A) {choice_a}, B) {choice_b}, C) {choice_c}, D) {choice_d}, E) {choice_e}"
                         else:  # 4 options
-                            full_question = f"Answer the following medical question: {question_text} The choices are: A) {choice_a}, B) {choice_b}, C) {choice_c}, D) {choice_d}"
+                            full_question = f"Answer the following medical question by selecting from the options [A, B, C, D]: {question_text} A) {choice_a}, B) {choice_b}, C) {choice_c}, D) {choice_d}"
                         
-                        # Create answer
-                        answer = f"The answer is option {answer_idx}"
+                        # Create short answer (just the letter)
+                        answer = answer_idx.upper()
+                        
+                        # Create detailed answer
+                        answer_long = f"The answer is option {answer_idx}"
                         
                         qa_data.append({
                             "question": full_question,
-                            "answer": answer
+                            "answer": answer,
+                            "answer_long": answer_long
                         })
                         
                     except json.JSONDecodeError:

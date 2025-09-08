@@ -83,9 +83,9 @@ def calculate_and_save_embeddings(dataset, dataset_name, model, save_dir="embedd
             pickle.dump(question_embeddings, qf)
         print(f"Saved question embeddings for {dataset_name}.")
         
-        # Compute embeddings for answers
+        # Compute embeddings for answers (use dedup_answer for embedding generation)
         print(f"Generating answer embeddings for {dataset_name}...")
-        answers = dataset["answer"].tolist()
+        answers = dataset["dedup_answer"].tolist()
         answer_embeddings = get_embeddings(answers, model, batch_size)
         
         # Save answer embeddings
@@ -236,20 +236,23 @@ def load_model(model_name):
         raise ValueError(f"Unknown model name: {model_name}. Supported models: 'MedImageInsight', 'BiomedBERT'")
 
 def standardize_columns(df, dataset_name):
-    """Standardize column names to 'question' and 'answer' based on dataset"""
+    """Standardize column names and handle MC vs open-ended datasets"""
     print(f"Original columns for {dataset_name}: {list(df.columns)}")
+    
+    # Define MC datasets that have both answer and answer_long columns
+    mc_datasets = {"hoc", "PubMedQA", "MedMCQA", "JAMA", "MedBullets5", "MedBullets4"}
     
     # Column mappings for different datasets based on convert_qa_format.py
     column_mappings = {
-        "hoc": {"question": "question", "answer": "answer"},
-        "PubMedQA": {"question": "question", "answer": "answer"},  
+        "hoc": {"question": "question", "answer": "answer", "answer_long": "answer_long"},
+        "PubMedQA": {"question": "question", "answer": "answer", "answer_long": "answer_long"},  
         "BioNLI": {"question": "question", "answer": "answer"},
         "NFCorpus": {"question": "question", "answer": "answer"},
         "BC5CDR": {"question": "question", "answer": "answer"},
-        "MedMCQA": {"question": "question_with_options", "answer": "answer"},
-        "JAMA": {"question": "question", "answer": "answer"},
-        "MedBullets5": {"question": "question", "answer": "answer"},
-        "MedBullets4": {"question": "question", "answer": "answer"},
+        "MedMCQA": {"question": "question", "answer": "answer", "answer_long": "answer_long"},
+        "JAMA": {"question": "question", "answer": "answer", "answer_long": "answer_long"},
+        "MedBullets5": {"question": "question", "answer": "answer", "answer_long": "answer_long"},
+        "MedBullets4": {"question": "question", "answer": "answer", "answer_long": "answer_long"},
         "MedQA-USMLE": {"question": "question", "answer": "answer"},
         "LiveQA": {"question": "question", "answer": "answer"},
         "MedicationQA": {"question": "question", "answer": "answer"},
@@ -265,14 +268,23 @@ def standardize_columns(df, dataset_name):
         if missing_cols:
             print(f"Warning: Missing columns {missing_cols} in {dataset_name}")
             return None
-            
-        # Create a new DataFrame with just the standardized columns.
-        # This is safer than renaming in-place, as it avoids creating duplicate columns
-        # if the original dataframe already has a 'question' or 'answer' column.
-        df_standardized = pd.DataFrame({
-            'question': df[mapping['question']],
-            'answer': df[mapping['answer']]
-        })
+        
+        # For MC datasets, create DataFrame with question, answer, answer_long, and dedup_answer
+        if dataset_name in mc_datasets:
+            df_standardized = pd.DataFrame({
+                'question': df[mapping['question']],
+                'answer': df[mapping['answer']],  # Short answer (A, B, C, etc.)
+                'answer_long': df[mapping['answer_long']],  # Detailed answer
+                'dedup_answer': df[mapping['answer_long']]  # Use answer_long for deduplication
+            })
+            print(f"MC dataset: Using answer_long for deduplication, keeping both answer columns")
+        else:
+            # For open-ended datasets, use regular answer for deduplication
+            df_standardized = pd.DataFrame({
+                'question': df[mapping['question']],
+                'answer': df[mapping['answer']],
+                'dedup_answer': df[mapping['answer']]  # Use answer for deduplication
+            })
         
         # For logging, we need the original number of samples
         original_length = len(df)
@@ -283,23 +295,31 @@ def standardize_columns(df, dataset_name):
         original_length = len(df)
 
     # Ensure we have the required columns
-    if 'question' not in df.columns or 'answer' not in df.columns:
-        print(f"Error: {dataset_name} missing 'question' or 'answer' columns after standardization")
+    required_cols = ['question', 'dedup_answer']
+    missing_required = [col for col in required_cols if col not in df.columns]
+    if missing_required:
+        print(f"Error: {dataset_name} missing required columns {missing_required} after standardization")
         return None
         
-    # Filter out rows with empty questions or answers before returning
-    result_df = df[['question', 'answer']].copy()
-    result_df = result_df.dropna(subset=['question', 'answer'])  # Remove NaN
+    # Filter out rows with empty questions or dedup_answers before returning
+    cols_to_keep = ['question', 'dedup_answer']
+    if 'answer' in df.columns:
+        cols_to_keep.append('answer')
+    if 'answer_long' in df.columns:
+        cols_to_keep.append('answer_long')
+        
+    result_df = df[cols_to_keep].copy()
+    result_df = result_df.dropna(subset=['question', 'dedup_answer'])  # Remove NaN
     
     # Convert to string and then filter empty strings (handle non-string data types)
     result_df['question'] = result_df['question'].astype(str)
-    result_df['answer'] = result_df['answer'].astype(str)
+    result_df['dedup_answer'] = result_df['dedup_answer'].astype(str)
     
     result_df = result_df[
         (result_df['question'].str.strip() != '') & 
-        (result_df['answer'].str.strip() != '') &
+        (result_df['dedup_answer'].str.strip() != '') &
         (result_df['question'].str.strip() != 'nan') & 
-        (result_df['answer'].str.strip() != 'nan')
+        (result_df['dedup_answer'].str.strip() != 'nan')
     ]  # Remove empty strings and 'nan' strings
     print(f"After filtering empty Q&A for {dataset_name}: {len(result_df)} samples (removed {original_length - len(result_df)})")
     return result_df
@@ -436,13 +456,13 @@ def deduplicate_within_group(group_data, model, threshold=0.9, group_name=None):
         return combined_data
         
     # Check required columns
-    if 'question' not in combined_data.columns or 'answer' not in combined_data.columns:
-        print("Warning: Missing required 'question' or 'answer' columns")
+    if 'question' not in combined_data.columns or 'dedup_answer' not in combined_data.columns:
+        print("Warning: Missing required 'question' or 'dedup_answer' columns")
         return combined_data
     
     print(f"Starting within-group deduplication with threshold {threshold}...")
     print(f"Sample question: {combined_data['question'].iloc[0][:100]}...")
-    print(f"Sample answer: {combined_data['answer'].iloc[0][:100]}...")
+    print(f"Sample dedup_answer: {combined_data['dedup_answer'].iloc[0][:100]}...")
     
     # Get dataset distribution before deduplication
     dataset_counts_before = combined_data['dataset_name'].value_counts()
@@ -471,7 +491,18 @@ def deduplicate_within_group(group_data, model, threshold=0.9, group_name=None):
         
     else:
         # Standard deduplication for other groups (both questions and answers)
-        deduplicated_data, removed_questions, removed_answers = deduplication_within_dataset_qa(combined_data, model, threshold)
+        # Create a temporary dataset with 'answer' column pointing to 'dedup_answer' for the deduplication function
+        temp_data_for_dedup = combined_data.copy()
+        temp_data_for_dedup['answer'] = combined_data['dedup_answer']
+        
+        deduplicated_data, removed_questions, removed_answers = deduplication_within_dataset_qa(temp_data_for_dedup, model, threshold)
+        
+        # Restore the original columns structure in the deduplicated data
+        if 'answer_long' in combined_data.columns:
+            # For MC datasets, restore both answer and answer_long columns
+            original_indices = deduplicated_data.index
+            deduplicated_data = combined_data.iloc[original_indices].copy()
+        
         print(f"After within-group deduplication: {len(deduplicated_data)} (removed {len(removed_questions)} by question similarity, {len(removed_answers)} by answer similarity)")
     
     # Check dataset distribution after deduplication
@@ -530,9 +561,21 @@ def deduplicate_across_groups(group_data, previous_embeddings, model, threshold=
         old_question_embeddings.extend(group_embeddings['questions'])
         old_answer_embeddings.extend(group_embeddings['answers'])
     
-    deduplicated_data, _, _ = deduplicate_across_datasets_qa(
-        group_data, [old_question_embeddings], [old_answer_embeddings], model, threshold
+    # Create a temporary dataset with 'answer' column pointing to 'dedup_answer' for the deduplication function
+    temp_data_for_dedup = group_data.copy()
+    temp_data_for_dedup['answer'] = group_data['dedup_answer']
+    
+    deduplicated_temp_data, _, _ = deduplicate_across_datasets_qa(
+        temp_data_for_dedup, [old_question_embeddings], [old_answer_embeddings], model, threshold
     )
+    
+    # Restore the original columns structure in the deduplicated data
+    if 'answer_long' in group_data.columns:
+        # For MC datasets, restore both answer and answer_long columns
+        original_indices = deduplicated_temp_data.index
+        deduplicated_data = group_data.iloc[original_indices].copy()
+    else:
+        deduplicated_data = deduplicated_temp_data
     print(f"After cross-group deduplication: {len(deduplicated_data)}")
     
     return deduplicated_data
