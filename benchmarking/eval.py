@@ -20,10 +20,18 @@ def create_mc_prompt(question: str, options: Dict[str, str], question_type: str 
     
     instruction = domain_instructions.get(question_type, domain_instructions["medical"])
     
-    # Format options
-    option_text = "\n".join([f"{key}. {value}" for key, value in options.items()])
-    
-    prompt = f"""{instruction}
+    # Check if options are already embedded in the question
+    if options and any(opt in question for opt in options.keys()):
+        # Options are already in the question, use it directly
+        prompt = f"""{instruction}
+
+{question}
+
+Answer: The correct answer is"""
+    else:
+        # Options need to be formatted separately
+        option_text = "\n".join([f"{key}. {value}" for key, value in options.items()])
+        prompt = f"""{instruction}
 
 Question: {question}
 
@@ -55,30 +63,36 @@ Answer:"""
 
 def extract_mc_answer(response: str, valid_options: List[str]) -> Optional[str]:
     """Extract multiple choice answer from model response."""
-    response = response.strip().upper()
+    response = response.strip()
     
-    # Try to find option letter at the beginning
-    for option in valid_options:
-        if response.startswith(option.upper()):
-            return option.upper()
+    # Convert valid options to uppercase for comparison
+    valid_options_upper = [opt.upper() for opt in valid_options]
     
-    # Try to find option letter anywhere in response
-    for option in valid_options:
-        if option.upper() in response:
-            return option.upper()
+    # Method 1: Try to find option letter at the beginning (only if it's a standalone letter)
+    if len(response) > 0 and response[0].upper() in valid_options_upper:
+        # Make sure it's actually a standalone answer, not part of a word like "Answer:"
+        if len(response) == 1 or (len(response) > 1 and not response[1].isalpha()):
+            return response[0].upper()
     
-    # Try to find patterns like "answer is A" or "(A)"
+    # Method 2: Try specific patterns first (more precise)
     patterns = [
-        r'\b([A-Z])\b',
+        r'(?:correct answer is|answer is|the answer is)\s*([A-Z])',
+        r'answer:\s*([A-Z])',  # Handle "Answer: A" format
         r'\(([A-Z])\)',
-        r'answer is ([A-Z])',
-        r'correct answer is ([A-Z])'
+        r'^([A-Z])[\.\)]\s*',  # Starts with letter and period/paren
+        r'\b([A-Z])\b'  # Single letter surrounded by word boundaries
     ]
     
     for pattern in patterns:
         match = re.search(pattern, response, re.IGNORECASE)
-        if match and match.group(1).upper() in [opt.upper() for opt in valid_options]:
+        if match and match.group(1).upper() in valid_options_upper:
             return match.group(1).upper()
+    
+    # Method 3: Look for any valid option letter in the response
+    response_upper = response.upper()
+    for option in valid_options_upper:
+        if option in response_upper:
+            return option
     
     return None
 
@@ -86,12 +100,44 @@ def parse_mc_options(question_text: str) -> Dict[str, str]:
     """Parse multiple choice options from question text."""
     options = {}
     
-    # Pattern to match options like "A. text" or "A) text"
-    pattern = r'([A-Z])[\.\)]\s*([^A-Z]+?)(?=[A-Z][\.\)]|$)'
-    matches = re.findall(pattern, question_text, re.DOTALL)
+    # Method 1: Handle newline-separated options (like format test 4)
+    lines = question_text.split('\n')
+    for line in lines:
+        line = line.strip()
+        if re.match(r'^[A-Z][\.\)]\s*.+', line):
+            match = re.match(r'^([A-Z])[\.\)]\s*(.+)', line)
+            if match:
+                letter, text = match.groups()
+                options[letter] = text.strip()
     
-    for letter, text in matches:
-        options[letter] = text.strip()
+    # Method 2: Handle inline options (like our converted format)
+    if not options:
+        # Pattern to match "A. text B. text C. text" format
+        # Look for pattern: letter + period/paren + text + (next letter or end)
+        pattern = r'([A-Z])[\.\)]\s*([^A-Z]*?)(?=\s+[A-Z][\.\)]|$)'
+        matches = re.findall(pattern, question_text)
+        
+        for letter, text in matches:
+            text = text.strip()
+            # Remove trailing punctuation and clean up
+            text = re.sub(r'\s+', ' ', text).strip()
+            if text and len(text) > 1:  # Ensure we have meaningful text
+                options[letter] = text
+    
+    # Method 3: More aggressive pattern for continuous text
+    if not options:
+        # Split on capital letters followed by period/parenthesis
+        parts = re.split(r'(?=[A-Z][\.\)])', question_text)
+        for part in parts:
+            part = part.strip()
+            if re.match(r'^[A-Z][\.\)]\s*.+', part):
+                match = re.match(r'^([A-Z])[\.\)]\s*(.+)', part)
+                if match:
+                    letter, text = match.groups()
+                    # Clean up text - remove leading/trailing whitespace and newlines
+                    text = re.sub(r'\s+', ' ', text.strip())
+                    if text and len(text) > 1:
+                        options[letter] = text
     
     return options
 

@@ -122,7 +122,14 @@ def run_evaluation_group(group_name: str, config: Dict[str, Any],
             print(f"Sampled {len(data)} samples for evaluation")
         
         questions = data['question'].tolist()
-        answers = data['answer'].tolist()
+        
+        # For MC datasets, use the single letter answer; for open-ended, use the full answer
+        if config["type"] == "mc":
+            # Use single letter answers (A, B, C, D) for MC evaluation
+            answers = data['answer'].tolist()
+        else:
+            # Use full answers for open-ended evaluation
+            answers = data['answer'].tolist()
         
         # Run evaluation based on type
         if config["type"] == "mc":
