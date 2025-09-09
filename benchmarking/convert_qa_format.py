@@ -252,26 +252,55 @@ def format_pubmedqa_dataset(df):
 
 def convert_pubmedqa(directory = "dataset/PubMedQA"):
     ds_json = load_dataset(directory, filetype = "json")
+    
+    # Load all three files
     pubmedqa1 = ds_json["dataset/PubMedQA/ori_pqaa.json"].T
     pubmedqa2 = ds_json["dataset/PubMedQA/ori_pqau.json"].T
     pubmedqa3 = ds_json["dataset/PubMedQA/ori_pqal.json"].T
 
-    # Format each dataset as MC
-    pubmedqa1_formatted = format_pubmedqa_dataset(pubmedqa1.copy())
-    pubmedqa2_formatted = format_pubmedqa_dataset(pubmedqa2.copy())
-    pubmedqa3_formatted = format_pubmedqa_dataset(pubmedqa3.copy())
+    print(f"PubMedQA1 columns: {list(pubmedqa1.columns)}")
+    print(f"PubMedQA2 columns: {list(pubmedqa2.columns)}")
+    print(f"PubMedQA3 columns: {list(pubmedqa3.columns)}")
+
+    # Only process files that have final_decision column
+    valid_datasets = []
     
-    # Keep only necessary columns and drop NaN
-    for df in [pubmedqa1_formatted, pubmedqa2_formatted, pubmedqa3_formatted]:
+    if 'final_decision' in pubmedqa1.columns:
+        print("Processing ori_pqaa.json (has final_decision)")
+        pubmedqa1_formatted = format_pubmedqa_dataset(pubmedqa1.copy())
+        valid_datasets.append(("pubmedqa1_converted.csv", pubmedqa1_formatted))
+    else:
+        print("Skipping ori_pqaa.json (no final_decision column)")
+    
+    if 'final_decision' in pubmedqa2.columns:
+        print("Processing ori_pqau.json (has final_decision)")
+        pubmedqa2_formatted = format_pubmedqa_dataset(pubmedqa2.copy())
+        valid_datasets.append(("pubmedqa2_converted.csv", pubmedqa2_formatted))
+    else:
+        print("Skipping ori_pqau.json (no final_decision column)")
+    
+    if 'final_decision' in pubmedqa3.columns:
+        print("Processing ori_pqal.json (has final_decision)")
+        pubmedqa3_formatted = format_pubmedqa_dataset(pubmedqa3.copy())
+        valid_datasets.append(("pubmedqa3_converted.csv", pubmedqa3_formatted))
+    else:
+        print("Skipping ori_pqal.json (no final_decision column)")
+
+    if not valid_datasets:
+        print("Warning: No PubMedQA files have final_decision column!")
+        return
+
+    # Keep only necessary columns and drop NaN for valid datasets
+    for filename, df in valid_datasets:
         df.dropna(subset = ["question", "answer"], inplace = True)
 
     if not os.path.exists("converted_qa/PubMedQA"):
         os.makedirs("converted_qa/PubMedQA", exist_ok = True)
     
-    # Save with only question, answer, answer_long columns
-    pubmedqa1_formatted[['question', 'answer', 'answer_long']].to_csv("converted_qa/PubMedQA/pubmedqa1_converted.csv", index = False)
-    pubmedqa2_formatted[['question', 'answer', 'answer_long']].to_csv("converted_qa/PubMedQA/pubmedqa2_converted.csv", index = False)
-    pubmedqa3_formatted[['question', 'answer', 'answer_long']].to_csv("converted_qa/PubMedQA/pubmedqa3_converted.csv", index = False)
+    # Save only the valid datasets
+    for filename, df in valid_datasets:
+        df[['question', 'answer', 'answer_long']].to_csv(f"converted_qa/PubMedQA/{filename}", index = False)
+        print(f"Saved {len(df)} samples to {filename}")
 
 
 def format_medmcqa_dataset(df):
@@ -1346,4 +1375,4 @@ def main():
 if __name__ == "__main__":
     # success = main()
     # exit(0 if success else 1)
-    convert_medquad()
+    convert_pubmedqa()

@@ -8,8 +8,8 @@ import json
 import re
 from typing import List, Dict, Any, Optional
 
-def create_mc_prompt(question: str, options: Dict[str, str], question_type: str = "medical") -> str:
-    """Create prompt for multiple choice questions."""
+def create_mc_prompt(question: str, options: Dict[str, str], question_type: str = "medical", dataset_name: str = None) -> str:
+    """Create prompt for multiple choice questions with dataset-specific instructions."""
     
     # Domain-specific instructions
     domain_instructions = {
@@ -20,25 +20,35 @@ def create_mc_prompt(question: str, options: Dict[str, str], question_type: str 
     
     instruction = domain_instructions.get(question_type, domain_instructions["medical"])
     
+    # Dataset-specific output format instructions
+    output_instruction = ""
+    if dataset_name and 'pubmedqa' in dataset_name.lower():
+        output_instruction = "\n\nIMPORTANT: Respond with exactly one word: 'Yes', 'No', or 'Maybe'. Do not provide any additional explanation."
+    elif dataset_name and 'hoc' in dataset_name.lower():
+        output_instruction = "\n\nIMPORTANT: You may select multiple options if applicable. Respond with the letter(s) only (e.g., 'H' for single answer or 'F, K' for multiple answers). Do not provide any additional explanation."
+    else:
+        # Standard MC (MedMCQA, JAMA, MedBullets, etc.)
+        output_instruction = "\n\nIMPORTANT: Respond with exactly one letter (A, B, C, D, or E). Do not provide any additional explanation."
+    
     # Check if options are already embedded in the question
     if options and any(opt in question for opt in options.keys()):
         # Options are already in the question, use it directly
-        prompt = f"""{instruction}
+        prompt = f"""{instruction}{output_instruction}
 
 {question}
 
-Answer: The correct answer is"""
+Answer:"""
     else:
         # Options need to be formatted separately
         option_text = "\n".join([f"{key}. {value}" for key, value in options.items()])
-        prompt = f"""{instruction}
+        prompt = f"""{instruction}{output_instruction}
 
 Question: {question}
 
 Options:
 {option_text}
 
-Answer: The correct answer is"""
+Answer:"""
     
     return prompt
 
@@ -61,10 +71,94 @@ Answer:"""
     
     return prompt
 
-def extract_mc_answer(response: str, valid_options: List[str]) -> Optional[str]:
+def extract_mc_answer(response: str, valid_options: List[str], dataset_name: str = None) -> Optional[str]:
     """Extract multiple choice answer from model response."""
     response = response.strip()
     
+    # Handle different dataset formats
+    if dataset_name and 'pubmedqa' in dataset_name.lower():
+        return extract_pubmedqa_answer(response)
+    elif dataset_name and 'hoc' in dataset_name.lower():
+        return extract_hoc_answer(response, valid_options)
+    else:
+        return extract_standard_mc_answer(response, valid_options)
+
+def extract_pubmedqa_answer(response: str) -> Optional[str]:
+    """Extract PubMedQA answer (Yes/No/Maybe)."""
+    response_upper = response.upper()
+    
+    # Method 1: Direct word matching
+    pubmedqa_options = ['YES', 'NO', 'MAYBE']
+    for option in pubmedqa_options:
+        if option in response_upper:
+            return option.capitalize()  # Return as "Yes", "No", "Maybe"
+    
+    # Method 2: Pattern matching for common response formats
+    patterns = [
+        r'(?:answer is|the answer is|correct answer is)\s*(yes|no|maybe)',
+        r'answer:\s*(yes|no|maybe)',
+        r'\b(yes|no|maybe)\b'
+    ]
+    
+    for pattern in patterns:
+        match = re.search(pattern, response, re.IGNORECASE)
+        if match:
+            return match.group(1).capitalize()
+    
+    return None
+
+def extract_hoc_answer(response: str, valid_options: List[str]) -> Optional[str]:
+    """Extract HOC answer (can be multiple letters like 'F, K')."""
+    response_upper = response.upper()
+    
+    # Method 1: Look for specific patterns with comma-separated letters
+    patterns = [
+        r'(?:answer is|the answer is|correct answer is)\s*([A-K](?:\s*,\s*[A-K])*)',
+        r'answer:\s*([A-K](?:\s*,\s*[A-K])*)',
+        r'\b([A-K](?:\s*,\s*[A-K])+)\b',  # Multiple letters with commas
+    ]
+    
+    for pattern in patterns:
+        match = re.search(pattern, response_upper)
+        if match:
+            extracted = match.group(1)
+            # Normalize spacing: "F,K" or "F, K" -> "F, K"
+            normalized = ', '.join([letter.strip() for letter in extracted.split(',')])
+            if normalized in [opt.upper() for opt in valid_options]:
+                return normalized
+    
+    # Method 2: Look for direct comma-separated pattern at start or standalone
+    comma_pattern = r'^([A-K](?:\s*,\s*[A-K])+)$|^([A-K]\s*,\s*[A-K])'
+    match = re.search(comma_pattern, response_upper.strip())
+    if match:
+        extracted = match.group(1) or match.group(2)
+        normalized = ', '.join([letter.strip() for letter in extracted.split(',')])
+        if normalized in [opt.upper() for opt in valid_options]:
+            return normalized
+    
+    # Method 3: Look for single letters with specific patterns
+    single_patterns = [
+        r'(?:answer is|the answer is|correct answer is)\s*([A-K])',
+        r'answer:\s*([A-K])',
+        r'\b([A-K])\b'
+    ]
+    
+    for pattern in single_patterns:
+        match = re.search(pattern, response_upper)
+        if match:
+            letter = match.group(1)
+            if letter in [opt.upper() for opt in valid_options]:
+                return letter
+    
+    # Method 4: Check if any valid option appears in response (exact match)
+    for option in valid_options:
+        if option.upper() in response_upper:
+            return option.upper()
+    
+    return None
+
+def extract_standard_mc_answer(response: str, valid_options: List[str]) -> Optional[str]:
+    """Extract standard MC answer (A, B, C, D, etc.)."""
     # Convert valid options to uppercase for comparison
     valid_options_upper = [opt.upper() for opt in valid_options]
     
@@ -144,7 +238,8 @@ def parse_mc_options(question_text: str) -> Dict[str, str]:
 def evaluate_mc_questions(questions: List[str], 
                          ground_truth: List[str],
                          model_generate_func,
-                         question_type: str = "medical") -> Dict[str, Any]:
+                         question_type: str = "medical",
+                         dataset_names: List[str] = None) -> Dict[str, Any]:
     """
     Evaluate multiple choice questions.
     
@@ -168,16 +263,30 @@ def evaluate_mc_questions(questions: List[str],
             print(f"Warning: Could not parse options for question {i}")
             continue
         
+        # Get dataset name for this question
+        dataset_name = dataset_names[i] if dataset_names and i < len(dataset_names) else None
+        
         # Create prompt
-        prompt = create_mc_prompt(question, options, question_type)
+        prompt = create_mc_prompt(question, options, question_type, dataset_name)
         
         # Get model response
         try:
             response = model_generate_func(prompt)
-            predicted = extract_mc_answer(response, list(options.keys()))
             
-            # Check if correct
-            is_correct = predicted == ground_truth[i].upper() if i < len(ground_truth) else False
+            predicted = extract_mc_answer(response, list(options.keys()), dataset_name)
+            
+            # Check if correct (handle different answer formats)
+            expected_answer = ground_truth[i] if i < len(ground_truth) else None
+            is_correct = False
+            
+            if predicted and expected_answer:
+                # For PubMedQA, compare case-insensitively
+                if dataset_name and 'pubmedqa' in dataset_name.lower():
+                    is_correct = predicted.lower() == expected_answer.lower()
+                # For HOC and standard MC, compare as-is (case-sensitive for letters)
+                else:
+                    is_correct = predicted == expected_answer
+            
             if is_correct:
                 correct += 1
             
