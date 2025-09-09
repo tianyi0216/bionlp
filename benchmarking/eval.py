@@ -23,7 +23,7 @@ def create_mc_prompt(question: str, options: Dict[str, str], question_type: str 
     # Dataset-specific output format instructions
     output_instruction = ""
     if dataset_name and 'pubmedqa' in dataset_name.lower():
-        output_instruction = "\n\nIMPORTANT: Respond with exactly one word: 'Yes', 'No', or 'Maybe'. Do not provide any additional explanation."
+        output_instruction = "\n\nAnswer with Yes, No, or Maybe:"
     elif dataset_name and 'hoc' in dataset_name.lower():
         output_instruction = "\n\nIMPORTANT: You may select multiple options if applicable. Respond with the letter(s) only (e.g., 'H' for single answer or 'F, K' for multiple answers). Do not provide any additional explanation."
     else:
@@ -194,7 +194,37 @@ def parse_mc_options(question_text: str) -> Dict[str, str]:
     """Parse multiple choice options from question text."""
     options = {}
     
-    # Method 1: Handle newline-separated options (like format test 4)
+    # Special handling for literature MC datasets
+    
+    # Method 1: PubMedQA format - ["Yes", "No", or "Maybe"]
+    if 'selecting from the options ["Yes", "No", or "Maybe"]' in question_text or \
+       '"Yes", "No", or "Maybe"' in question_text:
+        return {
+            "Yes": "Yes",
+            "No": "No", 
+            "Maybe": "Maybe"
+        }
+    
+    # Method 2: HOC format - cancer hallmarks with A-K options
+    if 'cancer hallmarks' in question_text.lower() or \
+       'A) None of the above' in question_text or \
+       'B) Sustaining proliferative signaling' in question_text or \
+       'selecting from the options [A, B, C, D, E, F, G, H, I, J, K]' in question_text:
+        return {
+            "A": "None of the above",
+            "B": "Sustaining proliferative signaling (PS)",
+            "C": "Evading growth suppressors (GS)", 
+            "D": "Resisting cell death (CD)",
+            "E": "Enabling replicative immortality (RI)",
+            "F": "Inducing angiogenesis (A)",
+            "G": "Activating invasion & metastasis (IM)",
+            "H": "Genome instability & mutation (GI)",
+            "I": "Tumor-promoting inflammation (TPI)",
+            "J": "Deregulating cellular energetics (CE)",
+            "K": "Avoiding immune destruction (ID)"
+        }
+    
+    # Method 3: Handle newline-separated options (standard format)
     lines = question_text.split('\n')
     for line in lines:
         line = line.strip()
@@ -204,7 +234,7 @@ def parse_mc_options(question_text: str) -> Dict[str, str]:
                 letter, text = match.groups()
                 options[letter] = text.strip()
     
-    # Method 2: Handle inline options (like our converted format)
+    # Method 4: Handle inline options (like our converted format)
     if not options:
         # Pattern to match "A. text B. text C. text" format
         # Look for pattern: letter + period/paren + text + (next letter or end)
@@ -218,7 +248,7 @@ def parse_mc_options(question_text: str) -> Dict[str, str]:
             if text and len(text) > 1:  # Ensure we have meaningful text
                 options[letter] = text
     
-    # Method 3: More aggressive pattern for continuous text
+    # Method 5: More aggressive pattern for continuous text
     if not options:
         # Split on capital letters followed by period/parenthesis
         parts = re.split(r'(?=[A-Z][\.\)])', question_text)
