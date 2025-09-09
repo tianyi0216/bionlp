@@ -127,9 +127,12 @@ def run_evaluation_group(group_name: str, config: Dict[str, Any],
         if config["type"] == "mc":
             # Use single letter answers (A, B, C, D) for MC evaluation
             answers = data['answer'].tolist()
+            # Get dataset names for handling different MC formats
+            dataset_names = data['dataset_name'].tolist() if 'dataset_name' in data.columns else None
         else:
             # Use full answers for open-ended evaluation
             answers = data['answer'].tolist()
+            dataset_names = None
         
         # Run evaluation based on type
         if config["type"] == "mc":
@@ -138,7 +141,8 @@ def run_evaluation_group(group_name: str, config: Dict[str, Any],
                 questions=questions,
                 ground_truth=answers,
                 model_generate_func=model_generate_func,
-                question_type=config["question_type"]
+                question_type=config["question_type"],
+                dataset_names=dataset_names
             )
             
             # Calculate additional MC metrics
