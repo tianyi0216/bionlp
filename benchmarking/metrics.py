@@ -9,6 +9,7 @@ from rouge_score import rouge_scorer
 from sentence_transformers import SentenceTransformer
 from sklearn.metrics.pairwise import cosine_similarity
 import re
+from tqdm import tqdm
 
 # Initialize medical embedding model (cached)
 _medical_model = None
@@ -330,7 +331,10 @@ def open_medical_similarity(predictions, targets, model_type="BiomedBERT"):
     
     # Calculate cosine similarities
     similarities = []
-    for pred_emb, target_emb in zip(pred_embeddings, target_embeddings):
+    for pred_emb, target_emb in tqdm(zip(pred_embeddings, target_embeddings), 
+                                     desc="Computing medical similarities", 
+                                     total=len(pred_embeddings), 
+                                     unit="pair"):
         similarity = cosine_similarity([pred_emb], [target_emb])[0][0]
         similarities.append(max(0, similarity))  # Ensure non-negative
     
