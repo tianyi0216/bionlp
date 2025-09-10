@@ -12,9 +12,10 @@ import json
 import time
 import traceback
 from typing import Dict, Any
+from tqdm import tqdm
 
 # Import evaluation functions
-from eval import evaluate_mc_questions, evaluate_open_questions, load_dataset, save_results
+from eval_functions import evaluate_mc_questions, evaluate_open_questions, load_dataset, save_results
 from metrics import evaluate_mc_complete, evaluate_open_complete
 
 def create_model_generate_func(model_name: str, use_instruct: bool = True, **kwargs):
@@ -70,7 +71,7 @@ def create_model_generate_func(model_name: str, use_instruct: bool = True, **kwa
     
     return generate_func
 
-def test_server_connection(model_name: str):
+def test_server_connection(model_name: str, use_instruct: bool = False):
     """Test if the vLLM server is working properly."""
     import openai
     
@@ -80,15 +81,25 @@ def test_server_connection(model_name: str):
             base_url="http://127.0.0.1:1234/v1",
         )
         
-        # Test with a simple message
-        response = client.chat.completions.create(
-            model=model_name,
-            messages=[{"role": "user", "content": "Hello, can you respond?"}],
-            max_tokens=10,
-            temperature=0.0
-        )
+        if use_instruct:
+            # Test with chat completions (instruct format)
+            response = client.chat.completions.create(
+                model=model_name,
+                messages=[{"role": "user", "content": "Hello, can you respond?"}],
+                max_tokens=10,
+                temperature=0.0
+            )
+            print(f"Server test successful. Response: {response.choices[0].message.content}")
+        else:
+            # Test with completions (pretrain format)
+            response = client.completions.create(
+                model=model_name,
+                prompt="Hello",
+                max_tokens=10,
+                temperature=0.0
+            )
+            print(f"Server test successful. Response: {response.choices[0].text}")
         
-        print(f"Server test successful. Response: {response.choices[0].message.content}")
         return True
         
     except Exception as e:
@@ -177,9 +188,14 @@ def run_evaluation_group(group_name: str, config: Dict[str, Any],
                 print(f"Top-3 Accuracy: {eval_results.get('top_3_accuracy', 0):.2%}")
         else:
             print(f"F1 Score: {eval_results.get('f1_score', 0):.3f}")
-            rouge_scores = eval_results.get('rouge_scores', {})
-            if isinstance(rouge_scores, dict):
-                print(f"ROUGE-L: {rouge_scores.get('rougeL', 0):.3f}")
+            print(f"BLEU Score: {eval_results.get('bleu_score', 0):.3f}")
+            # Check for ROUGE scores at top level first, then nested
+            rouge_l = eval_results.get('rougeL', 0)
+            if rouge_l == 0:
+                rouge_scores = eval_results.get('rouge_scores', {})
+                if isinstance(rouge_scores, dict):
+                    rouge_l = rouge_scores.get('rougeL', 0)
+            print(f"ROUGE-L: {rouge_l:.3f}")
             print(f"Medical Similarity: {eval_results.get('medical_similarity', 0):.3f}")
         
         return eval_results
@@ -193,7 +209,7 @@ def run_evaluation_group(group_name: str, config: Dict[str, Any],
 def main():
     parser = argparse.ArgumentParser(description="Run vLLM evaluation on CHTC")
     parser.add_argument("--model_name", required=True, help="Model name as served by vLLM")
-    parser.add_argument("--use_instruct", type=str, default="true", 
+    parser.add_argument("--use_instruct", type=str, default="false", 
                        help="Use instruct format (true/false)")
     parser.add_argument("--sample_size", type=int, default=None,
                        help="Number of samples to evaluate per group")
@@ -227,7 +243,7 @@ def main():
     
     # Test server connection
     print("Testing server connection...")
-    if not test_server_connection(args.model_name):
+    if not test_server_connection(args.model_name, use_instruct):
         print("ERROR: Cannot connect to vLLM server")
         sys.exit(1)
     
@@ -250,7 +266,7 @@ def main():
     all_results = {}
     
     # Run evaluation on each group
-    for group_name in args.groups:
+    for group_name in tqdm(args.groups, desc="Evaluating groups", unit="group"):
         if group_name not in group_configs:
             print(f"Warning: Unknown group {group_name}, skipping")
             continue

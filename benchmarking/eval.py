@@ -7,6 +7,7 @@ import pandas as pd
 import json
 import re
 from typing import List, Dict, Any, Optional
+from tqdm import tqdm
 
 def create_mc_prompt(question: str, options: Dict[str, str], question_type: str = "medical", dataset_name: str = None) -> str:
     """Create prompt for multiple choice questions with dataset-specific instructions."""
@@ -285,7 +286,7 @@ def evaluate_mc_questions(questions: List[str],
     results = []
     correct = 0
     
-    for i, question in enumerate(questions):
+    for i, question in enumerate(tqdm(questions, desc="Evaluating MC questions", unit="question")):
         # Parse options from question
         options = parse_mc_options(question)
         
@@ -365,7 +366,7 @@ def evaluate_open_questions(questions: List[str],
     """
     results = []
     
-    for i, question in enumerate(questions):
+    for i, question in enumerate(tqdm(questions, desc="Evaluating open questions", unit="question")):
         # Create prompt
         prompt = create_open_prompt(question, question_type)
         
