@@ -12,6 +12,7 @@ from typing import Dict, Any
 
 # Import evaluation functions
 from eval import evaluate_mc_questions, evaluate_open_questions, create_mc_prompt, create_open_prompt
+from metrics import evaluate_mc_complete, evaluate_open_complete
 import openai
 
 def create_vllm_generate_func(model_name: str, base_url: str, api_key: str, temperature: float, max_tokens: int, model_type: str = "instruct"):
@@ -50,6 +51,83 @@ def create_vllm_generate_func(model_name: str, base_url: str, api_key: str, temp
                 return ""
     
     return generate_func
+
+def calculate_category_averages(all_results: Dict[str, Any]) -> Dict[str, Any]:
+    """Calculate average metrics for MC and open-ended categories."""
+    
+    mc_results = []
+    open_results = []
+    
+    # Separate MC and open-ended results
+    for group_name, results in all_results.items():
+        if "error" in results:
+            continue
+            
+        if "mc" in group_name:
+            mc_results.append(results)
+        else:
+            open_results.append(results)
+    
+    averages = {}
+    
+    # Calculate MC averages
+    if mc_results:
+        mc_accuracies = [r.get('accuracy', 0) for r in mc_results]
+        averages['mc_average_accuracy'] = sum(mc_accuracies) / len(mc_accuracies) if mc_accuracies else 0
+        
+        # Check if we have confidence metrics
+        mc_confidences = [r.get('average_confidence', 0) for r in mc_results if 'average_confidence' in r]
+        if mc_confidences:
+            averages['mc_average_confidence'] = sum(mc_confidences) / len(mc_confidences)
+        
+        mc_calibration_errors = [r.get('calibration_error', 0) for r in mc_results if 'calibration_error' in r]
+        if mc_calibration_errors:
+            averages['mc_average_calibration_error'] = sum(mc_calibration_errors) / len(mc_calibration_errors)
+    
+    # Calculate open-ended averages
+    if open_results:
+        open_f1_scores = [r.get('f1_score', 0) for r in open_results]
+        averages['open_average_f1'] = sum(open_f1_scores) / len(open_f1_scores) if open_f1_scores else 0
+        
+        open_bleu_scores = [r.get('bleu_score', 0) for r in open_results]
+        averages['open_average_bleu'] = sum(open_bleu_scores) / len(open_bleu_scores) if open_bleu_scores else 0
+        
+        # ROUGE scores - check top level first, then nested
+        rouge_l_scores = []
+        rouge_1_scores = []
+        rouge_2_scores = []
+        
+        for r in open_results:
+            # Check if ROUGE scores are at top level first
+            if 'rougeL' in r or 'rouge1' in r or 'rouge2' in r:
+                rouge_l_scores.append(r.get('rougeL', 0))
+                rouge_1_scores.append(r.get('rouge1', 0))
+                rouge_2_scores.append(r.get('rouge2', 0))
+            else:
+                # Check nested rouge_scores dictionary
+                rouge_scores = r.get('rouge_scores', {})
+                if isinstance(rouge_scores, dict) and rouge_scores:  # Make sure it's not empty
+                    rouge_l_scores.append(rouge_scores.get('rougeL', 0))
+                    rouge_1_scores.append(rouge_scores.get('rouge1', 0))
+                    rouge_2_scores.append(rouge_scores.get('rouge2', 0))
+                else:
+                    # No ROUGE scores found, append 0
+                    rouge_l_scores.append(0)
+                    rouge_1_scores.append(0)
+                    rouge_2_scores.append(0)
+        
+        if rouge_l_scores:
+            averages['open_average_rouge_l'] = sum(rouge_l_scores) / len(rouge_l_scores)
+        if rouge_1_scores:
+            averages['open_average_rouge_1'] = sum(rouge_1_scores) / len(rouge_1_scores)
+        if rouge_2_scores:
+            averages['open_average_rouge_2'] = sum(rouge_2_scores) / len(rouge_2_scores)
+        
+        # Medical similarity
+        med_sim_scores = [r.get('medical_similarity', 0) for r in open_results]
+        averages['open_average_medical_similarity'] = sum(med_sim_scores) / len(med_sim_scores) if med_sim_scores else 0
+    
+    return averages
 
 def test_dataset_group(group_name: str, model_generate_func, data_dir: str, sample_size: int, max_sample_size: int) -> Dict[str, Any]:
     """Test a single dataset group with small sample."""
@@ -90,7 +168,18 @@ def test_dataset_group(group_name: str, model_generate_func, data_dir: str, samp
                 question_type=question_type,
                 dataset_names=dataset_names
             )
+            
+            # Calculate comprehensive MC metrics
+            predictions = [r.get('predicted', '') for r in results['results']]
+            ground_truth = [r.get('ground_truth', '') for r in results['results']]
+            
+            # Get complete metrics
+            complete_metrics = evaluate_mc_complete(predictions, ground_truth)
+            results.update(complete_metrics)
+            
             print(f"MC Accuracy: {results.get('accuracy', 0):.2%}")
+            if 'top_3_accuracy' in results:
+                print(f"Top-3 Accuracy: {results.get('top_3_accuracy', 0):.2%}")
         else:
             # Open-ended evaluation
             results = evaluate_open_questions(
@@ -99,7 +188,21 @@ def test_dataset_group(group_name: str, model_generate_func, data_dir: str, samp
                 model_generate_func=model_generate_func,
                 question_type=question_type
             )
+            
+            # Calculate comprehensive open-ended metrics
+            predictions = [r.get('generated_answer', '') for r in results['results']]
+            ground_truth = [r.get('ground_truth', '') for r in results['results']]
+            
+            # Get complete metrics
+            complete_metrics = evaluate_open_complete(predictions, ground_truth)
+            results.update(complete_metrics)
+            
             print(f"Generated {results.get('total', 0)} responses")
+            print(f"F1 Score: {results.get('f1_score', 0):.3f}")
+            rouge_scores = results.get('rouge_scores', {})
+            if isinstance(rouge_scores, dict):
+                print(f"ROUGE-L: {rouge_scores.get('rougeL', 0):.3f}")
+            print(f"Medical Similarity: {results.get('medical_similarity', 0):.3f}")
         
         return results
         
@@ -185,10 +288,25 @@ def main():
             json.dump(results, f, indent=2, ensure_ascii=False)
         print(f"Results saved to {output_file}")
     
+    # Calculate category averages
+    category_averages = calculate_category_averages(all_results)
+    
+    # Combine results with averages
+    final_results = {
+        "individual_results": all_results,
+        "category_averages": category_averages,
+        "model_info": {
+            "model_name": MODEL_NAME,
+            "model_type": MODEL_TYPE,
+            "temperature": TEMPERATURE,
+            "max_tokens": MAX_TOKENS
+        }
+    }
+    
     # Save combined results
     combined_file = os.path.join(OUTPUT_DIR, "test_combined_results.json")
     with open(combined_file, 'w') as f:
-        json.dump(all_results, f, indent=2, ensure_ascii=False)
+        json.dump(final_results, f, indent=2, ensure_ascii=False)
     
     # Print summary
     print(f"\n=== TEST SUMMARY ===")
@@ -198,10 +316,43 @@ def main():
         elif "mc" in group_name:
             accuracy = results.get('accuracy', 0)
             total = results.get('total', 0)
+            confidence = results.get('average_confidence', 0)
             print(f"{group_name}: ✅ Accuracy {accuracy:.2%} ({results.get('correct', 0)}/{total})")
+            if confidence > 0:
+                print(f"           Confidence: {confidence:.2%}")
         else:
             total = results.get('total', 0)
+            f1_score = results.get('f1_score', 0)
+            rouge_l = results.get('rougeL', 0)
+            med_sim = results.get('medical_similarity', 0)
             print(f"{group_name}: ✅ Generated {total} responses")
+            print(f"           F1: {f1_score:.3f} | ROUGE-L: {rouge_l:.3f} | Med-Sim: {med_sim:.3f}")
+    
+    # Print category averages
+    if category_averages:
+        print(f"\n=== CATEGORY AVERAGES ===")
+        
+        # MC averages
+        if 'mc_average_accuracy' in category_averages:
+            print(f"Multiple Choice:")
+            print(f"  Average Accuracy: {category_averages['mc_average_accuracy']:.2%}")
+            if 'mc_average_confidence' in category_averages:
+                print(f"  Average Confidence: {category_averages['mc_average_confidence']:.2%}")
+            if 'mc_average_calibration_error' in category_averages:
+                print(f"  Average Calibration Error: {category_averages['mc_average_calibration_error']:.3f}")
+        
+        # Open-ended averages
+        if 'open_average_f1' in category_averages:
+            print(f"Open-ended:")
+            print(f"  Average F1: {category_averages['open_average_f1']:.3f}")
+            print(f"  Average BLEU: {category_averages['open_average_bleu']:.3f}")
+            if 'open_average_rouge_l' in category_averages:
+                print(f"  Average ROUGE-L: {category_averages['open_average_rouge_l']:.3f}")
+            if 'open_average_rouge_1' in category_averages:
+                print(f"  Average ROUGE-1: {category_averages['open_average_rouge_1']:.3f}")
+            if 'open_average_rouge_2' in category_averages:
+                print(f"  Average ROUGE-2: {category_averages['open_average_rouge_2']:.3f}")
+            print(f"  Average Medical Similarity: {category_averages['open_average_medical_similarity']:.3f}")
     
     print(f"\nAll results saved to {OUTPUT_DIR}/")
     print("🎉 Quick test completed!")
