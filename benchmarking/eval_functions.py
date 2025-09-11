@@ -378,7 +378,7 @@ def evaluate_open_questions(questions: List[str],
                 "question_id": i,
                 "question": question,
                 "ground_truth": ground_truth[i] if i < len(ground_truth) else None,
-                "generated_answer": response.strip(),
+                "generated_answer": response.strip() if response is not None else "",
                 "prompt": prompt
             })
             
