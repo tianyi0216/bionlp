@@ -48,7 +48,8 @@ def create_model_generate_func(model_name: str, use_instruct: bool = True, **kwa
                     presence_penalty=kwargs.get('presence_penalty', 0.0),
                     max_tokens=kwargs.get('max_tokens', 512),
                 )
-                return response.choices[0].message.content
+                content = response.choices[0].message.content
+                return content if content is not None else ""
             except Exception as e:
                 print(f"Error in instruct generation: {e}")
                 return ""
@@ -64,7 +65,8 @@ def create_model_generate_func(model_name: str, use_instruct: bool = True, **kwa
                     presence_penalty=kwargs.get('presence_penalty', 0.0),
                     max_tokens=kwargs.get('max_tokens', 512),
                 )
-                return response.choices[0].text
+                text = response.choices[0].text
+                return text if text is not None else ""
             except Exception as e:
                 print(f"Error in pretrain generation: {e}")
                 return ""
@@ -173,13 +175,17 @@ def run_evaluation_group(group_name: str, config: Dict[str, Any],
                 question_type=config["question_type"]
             )
             
-            # Calculate additional open-ended metrics
-            predictions = [r.get('generated_answer', '') for r in eval_results['results']]
-            ground_truth = [r.get('ground_truth', '') for r in eval_results['results']]
+            # Skip metrics calculation for open-ended questions to avoid OOM
+            # Just save the model outputs for later evaluation
+            print("Skipping metrics calculation for open-ended questions (avoiding OOM)")
             
-            # Get complete metrics
-            complete_metrics = evaluate_open_complete(predictions, ground_truth)
-            eval_results.update(complete_metrics)
+            # # Calculate additional open-ended metrics
+            # predictions = [r.get('generated_answer', '') for r in eval_results['results']]
+            # ground_truth = [r.get('ground_truth', '') for r in eval_results['results']]
+            # 
+            # # Get complete metrics
+            # complete_metrics = evaluate_open_complete(predictions, ground_truth)
+            # eval_results.update(complete_metrics)
         
         # Print summary
         if config["type"] == "mc":
@@ -187,16 +193,19 @@ def run_evaluation_group(group_name: str, config: Dict[str, Any],
             if 'top_3_accuracy' in eval_results:
                 print(f"Top-3 Accuracy: {eval_results.get('top_3_accuracy', 0):.2%}")
         else:
-            print(f"F1 Score: {eval_results.get('f1_score', 0):.3f}")
-            print(f"BLEU Score: {eval_results.get('bleu_score', 0):.3f}")
-            # Check for ROUGE scores at top level first, then nested
-            rouge_l = eval_results.get('rougeL', 0)
-            if rouge_l == 0:
-                rouge_scores = eval_results.get('rouge_scores', {})
-                if isinstance(rouge_scores, dict):
-                    rouge_l = rouge_scores.get('rougeL', 0)
-            print(f"ROUGE-L: {rouge_l:.3f}")
-            print(f"Medical Similarity: {eval_results.get('medical_similarity', 0):.3f}")
+            # For open-ended questions, just show basic info since metrics are skipped
+            total_responses = eval_results.get('total', 0)
+            print(f"Generated {total_responses} responses (metrics calculation skipped)")
+            # print(f"F1 Score: {eval_results.get('f1_score', 0):.3f}")
+            # print(f"BLEU Score: {eval_results.get('bleu_score', 0):.3f}")
+            # # Check for ROUGE scores at top level first, then nested
+            # rouge_l = eval_results.get('rougeL', 0)
+            # if rouge_l == 0:
+            #     rouge_scores = eval_results.get('rouge_scores', {})
+            #     if isinstance(rouge_scores, dict):
+            #         rouge_l = rouge_scores.get('rougeL', 0)
+            # print(f"ROUGE-L: {rouge_l:.3f}")
+            # print(f"Medical Similarity: {eval_results.get('medical_similarity', 0):.3f}")
         
         return eval_results
         
@@ -209,7 +218,7 @@ def run_evaluation_group(group_name: str, config: Dict[str, Any],
 def main():
     parser = argparse.ArgumentParser(description="Run vLLM evaluation on CHTC")
     parser.add_argument("--model_name", required=True, help="Model name as served by vLLM")
-    parser.add_argument("--use_instruct", type=str, default="false", 
+    parser.add_argument("--use_instruct", type=str, default="true", 
                        help="Use instruct format (true/false)")
     parser.add_argument("--sample_size", type=int, default=None,
                        help="Number of samples to evaluate per group")
@@ -219,10 +228,10 @@ def main():
                        help="Directory containing dataset files")
     parser.add_argument("--temperature", type=float, default=0.0,
                        help="Generation temperature")
-    parser.add_argument("--max_tokens", type=int, default=512,
+    parser.add_argument("--max_tokens", type=int, default=2048,
                        help="Maximum tokens to generate")
     parser.add_argument("--groups", nargs="+", 
-                       default=["literature_mc", "literature_open", "exam_mc", "exam_open"],
+                       default=["exam_mc","literature_open", "exam_open"],
                        help="Dataset groups to evaluate")
     
     args = parser.parse_args()
@@ -323,18 +332,11 @@ def create_summary_report(results: dict, model_name: str, output_dir: str):
             if "top_3_accuracy" in group_results:
                 summary["group_details"][group_name]["top_3_accuracy"] = group_results.get("top_3_accuracy", 0)
         else:
-            # Open-ended metrics
-            rouge_scores = group_results.get("rouge_scores", {})
-            if not isinstance(rouge_scores, dict):
-                rouge_scores = {}
-                
+            # Open-ended metrics (skipped to avoid OOM)
             summary["group_details"][group_name] = {
                 "type": "open_ended",
-                "f1_score": group_results.get("f1_score", 0),
-                "rouge_l": rouge_scores.get("rougeL", 0),
-                "bleu_score": group_results.get("bleu_score", 0),
-                "medical_similarity": group_results.get("medical_similarity", 0),
-                "total_samples": group_results.get("total", 0)
+                "total_samples": group_results.get("total", 0),
+                "note": "Metrics calculation skipped to avoid OOM"
             }
     
     # Calculate overall metrics
@@ -363,7 +365,9 @@ def create_summary_report(results: dict, model_name: str, output_dir: str):
                 acc_str += f" | Top-3 {details['top_3_accuracy']:.2%}"
             print(f"{group_name}: {acc_str}")
         else:
-            print(f"{group_name}: F1 {details['f1_score']:.3f} | ROUGE-L {details['rouge_l']:.3f} | Med-Sim {details['medical_similarity']:.3f}")
+            note = details.get('note', 'No metrics available')
+            total = details.get('total_samples', 0)
+            print(f"{group_name}: {total} samples | {note}")
     
     if "average_mc_accuracy" in summary["summary_metrics"]:
         print(f"\nOverall MC Accuracy: {summary['summary_metrics']['average_mc_accuracy']:.2%}")
