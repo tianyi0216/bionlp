@@ -11,7 +11,7 @@ import json
 from typing import Dict, Any
 
 # Import evaluation functions
-from eval import evaluate_mc_questions, evaluate_open_questions, create_mc_prompt, create_open_prompt
+from eval_functions import evaluate_mc_questions, evaluate_open_questions, create_mc_prompt, create_open_prompt
 from metrics import evaluate_mc_complete, evaluate_open_complete
 import openai
 
@@ -32,7 +32,8 @@ def create_vllm_generate_func(model_name: str, base_url: str, api_key: str, temp
                     temperature=temperature,
                     max_tokens=max_tokens,
                 )
-                return response.choices[0].message.content
+                content = response.choices[0].message.content
+                return content if content is not None else ""
             except Exception as e:
                 print(f"Error in instruct generation: {e}")
                 return ""
@@ -45,7 +46,8 @@ def create_vllm_generate_func(model_name: str, base_url: str, api_key: str, temp
                     temperature=temperature,
                     max_tokens=max_tokens,
                 )
-                return response.choices[0].text
+                text = response.choices[0].text
+                return text if text is not None else ""
             except Exception as e:
                 print(f"Error in pretrain generation: {e}")
                 return ""
