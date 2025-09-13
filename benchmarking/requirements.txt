@@ -1,17 +1,10 @@
-# Core ML dependencies
-torch>=2.1.0
-transformers>=4.36.0
-tokenizers>=0.15.0
-
-# vLLM and serving
-vllm==0.10.1
-openai>=1.0.0
-fastapi>=0.104.0
-uvicorn>=0.24.0
-
-# Data processing
+# Core dependencies for evaluation
 pandas>=2.0.0
 numpy>=1.24.0
+torch>=2.1.0
+
+# OpenAI API client (for vLLM communication)
+openai>=1.0.0
 
 # Evaluation metrics
 scikit-learn>=1.3.0
@@ -19,7 +12,8 @@ nltk>=3.8.0
 rouge-score>=0.1.2
 sentence-transformers>=2.2.0
 
-# Utilities
+# Progress bars and utilities
 tqdm>=4.66.0
-requests>=2.31.0
-pydantic>=2.5.0
+
+# Optional: vLLM for local deployment (not required for evaluation)
+# vllm==0.10.1
