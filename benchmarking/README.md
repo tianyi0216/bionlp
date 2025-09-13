@@ -2,6 +2,90 @@
 
 Simple benchmarking setup for evaluating language models on biomedical question-answering tasks.
 
+## Quick Setup
+
+### **1. Environment Setup:**
+
+**Create virtual environment:**
+```bash
+# Option 1: Using uv (recommended)
+curl -LsSf https://astral.sh/uv/install.sh | sh
+uv venv vllm --python 3.12
+source vllm/bin/activate
+
+# Option 2: Using conda
+conda create -n vllm python=3.12
+conda activate vllm
+
+# Option 3: Using pip
+python -m venv vllm
+source vllm/bin/activate  # On Windows: vllm\Scripts\activate
+```
+
+### **2. Install Dependencies:**
+
+**Install vLLM (for model deployment):**
+```bash
+# Using uv
+uv pip install vllm==0.10.1 --torch-backend=auto
+
+# Using pip
+pip install vllm==0.10.1
+```
+
+**Install evaluation requirements:**
+```bash
+# Using uv
+uv pip install -r requirements.txt
+
+# Using pip
+pip install -r requirements.txt
+```
+
+### **3. Deploy a Model (Example):**
+
+**For CHTC servers:**
+```bash
+export no_proxy="localhost,127.0.0.1,::1"
+```
+
+**Deploy Me-LLaMA (pretrain format):**
+```bash
+CUDA_VISIBLE_DEVICES=0,1 python3 -m vllm.entrypoints.openai.api_server \
+  --model YBXL/Med-LLaMA3-8B \
+  --served-model-name med-llama3-8b \
+  --tensor-parallel-size 2 \
+  --dtype auto \
+  --host 127.0.0.1 \
+  --port 1234
+```
+
+### **4. Configure and Test:**
+
+**Set up model configuration:**
+```bash
+# Interactive configuration (recommended)
+python setup_model_config.py
+
+# Or manually edit test_config.py
+# Set MODEL_TYPE = "pretrain" for Me-LLaMA
+# Set MODEL_TYPE = "instruct" for Qwen3, GPT-OSS, MedGemma
+```
+
+**Run quick test to verify everything works:**
+```bash
+# Test with 5 samples per dataset group
+python quick_test.py
+```
+
+This will:
+- Test server connection
+- Sample 5 questions from each dataset group
+- Run evaluation pipeline
+- Show accuracy/F1 scores and save results to `test_results/`
+
+---
+
 ## 1. Dataset Selection
 
 We created a balanced 10K dataset through deduplication and quality-based sampling:
@@ -98,33 +182,9 @@ Answer:
 - **`run.sh`**: Job execution script
 - **`requirements.txt`**: Python dependencies
 
-## 5. Environment Setup and Deployment
+## 5. Additional Model Deployments
 
-### **Environment Installation:**
-
-**Option 1: Using uv (recommended):**
-```bash
-curl -LsSf https://astral.sh/uv/install.sh | sh
-uv venv vllm --python 3.12
-source vllm/bin/activate
-uv pip install vllm==0.10.1 --torch-backend=auto
-```
-
-**Option 2: Using pip:**
-```bash
-python -m venv vllm
-source vllm/bin/activate  # On Windows: vllm\Scripts\activate
-pip install vllm==0.10.1
-```
-
-### **vLLM Model Deployment:**
-
-**For CHTC servers, set proxy first:**
-```bash
-export no_proxy="localhost,127.0.0.1,::1"
-```
-
-**Deploy Models:**
+**Other supported models:**
 
 **Qwen3 (without reasoning) - Use `instruct` format:**
 ```bash
@@ -154,17 +214,6 @@ CUDA_VISIBLE_DEVICES=0,1 python3 -m vllm.entrypoints.openai.api_server \
   --port 1234
 ```
 
-**Me-LLaMA - Use `pretrain` format:**
-```bash
-CUDA_VISIBLE_DEVICES=0,1 python3 -m vllm.entrypoints.openai.api_server \
-  --model YBXL/Med-LLaMA3-8B \
-  --served-model-name med-llama3-8b \
-  --tensor-parallel-size 2 \
-  --dtype auto \
-  --host 127.0.0.1 \
-  --port 1234
-```
-
 **MedGemma - Use `instruct` format:**
 ```bash
 CUDA_VISIBLE_DEVICES=0,1 python3 -m vllm.entrypoints.openai.api_server \
@@ -176,8 +225,7 @@ CUDA_VISIBLE_DEVICES=0,1 python3 -m vllm.entrypoints.openai.api_server \
   --port 1234
 ```
 
-### **Important Model Type Configuration:**
-
+**Model Type Reference:**
 | Model | Format | Configuration |
 |-------|--------|---------------|
 | Qwen3 (non-reasoning) | `instruct` | `MODEL_TYPE = "instruct"` |
@@ -185,16 +233,7 @@ CUDA_VISIBLE_DEVICES=0,1 python3 -m vllm.entrypoints.openai.api_server \
 | MedGemma | `instruct` | `MODEL_TYPE = "instruct"` |
 | Me-LLaMA | `pretrain` | `MODEL_TYPE = "pretrain"` |
 
-**Set model type in `test_config.py`:**
-```python
-# For Qwen3, GPT-OSS, MedGemma
-MODEL_TYPE = "instruct"
-
-# For Me-LLaMA
-MODEL_TYPE = "pretrain"
-```
-
-## 6. Quick Start
+## 6. Usage Examples
 
 ### **For vLLM Testing:**
 ```bash
