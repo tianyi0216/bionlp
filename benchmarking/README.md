@@ -2,6 +2,35 @@
 
 Simple benchmarking setup for evaluating language models on biomedical question-answering tasks.
 
+## How to run the experiment
+
+Here is the quickest way to run the experiment:
+
+Already finished runnning MedLLaMA3-8B with vLLM and GPT-OSS-20B with vLLM.
+
+Need to run qwen3-32b with vLLM and medgemma-27b-text-it with vLLM.
+
+You can change the hyperparameters in the `run.sh` script, and then run the experiment. The script runs inference on all datasets and saves the results to the `results/` directory for one specific model.
+
+```bash
+
+# 1. Set up environment only
+curl -LsSf https://astral.sh/uv/install.sh | sh
+uv venv vllm --python 3.12
+source vllm/bin/activate
+uv pip install vllm==0.10.1 --torch-backend=auto
+uv pip install -r requirements.txt
+
+# or use pip
+python -m venv vllm
+source vllm/bin/activate
+pip install vllm==0.10.1 --torch-backend=auto
+pip install -r requirements.txt
+
+# 2. Run the complete experiment (includes deployment + evaluation)
+./run.sh
+```
+
 ## Quick Setup
 
 ### **1. Environment Setup:**
@@ -83,6 +112,75 @@ This will:
 - Sample 5 questions from each dataset group
 - Run evaluation pipeline
 - Show accuracy/F1 scores and save results to `test_results/`
+
+## Automated Deployment and Evaluation
+
+### **Complete Pipeline with `run.sh`:**
+
+For fully automated deployment and evaluation, use the `run.sh` script:
+
+```bash
+# After environment setup, run everything automatically
+./run.sh
+```
+
+**What `run.sh` does:**
+1. **Deploys vLLM server** with Me-LLaMA model automatically
+2. **Waits for server** to be ready (up to 10 minutes)
+3. **Runs evaluation** on all 4 dataset groups
+4. **Saves results** to `results/` directory
+5. **Cleans up** server process when finished
+
+### **Customizing the Run:**
+
+**Change model (set before running):**
+```bash
+# Use Qwen3 instead of Me-LLaMA
+MODEL_NAME="Qwen/Qwen3-32B" SERVED_MODEL_NAME="qwen3-32b" \
+USE_INSTRUCT="true" CHAT_TEMPLATE="qwen3_nonthinking" ./run.sh
+```
+
+**Run specific datasets only:**
+```bash
+# Run only exam datasets
+DATASETS="exam_mc,exam_open" ./run.sh
+
+# Run only multiple choice datasets  
+DATASETS="literature_mc,exam_mc" ./run.sh
+```
+
+**Adjust evaluation parameters:**
+```bash
+# Use different sample size and temperature
+SAMPLE_SIZE="50" TEMPERATURE="0.3" ./run.sh
+```
+
+**All configurable parameters:**
+- `MODEL_NAME`: HuggingFace model path (default: "YBXL/Med-LLaMA3-8B")
+- `SERVED_MODEL_NAME`: Model name for API (default: "med-llama3-8b")  
+- `USE_INSTRUCT`: "true" for instruct, "false" for pretrain (default: "false")
+- `DATASETS`: Comma-separated list (default: "literature_mc,literature_open,exam_mc,exam_open")
+- `SAMPLE_SIZE`: Samples per dataset (default: "100")
+- `TEMPERATURE`: Generation temperature (default: "0.0")
+- `MAX_TOKENS`: Max tokens to generate (default: "256")
+- `TENSOR_PARALLEL_SIZE`: GPU parallelism (default: "2")
+- `CHAT_TEMPLATE`: Template for Qwen3 (use "qwen3_nonthinking")
+
+### **For Collaborators - Simple Instructions:**
+
+```bash
+# 1. Environment setup
+curl -LsSf https://astral.sh/uv/install.sh | sh
+uv venv vllm --python 3.12
+source vllm/bin/activate
+uv pip install vllm==0.10.1 --torch-backend=auto
+uv pip install -r requirements.txt
+
+# 2. Run complete experiment (deployment + evaluation)
+./run.sh
+```
+
+**That's it!** Results will be saved to `results/` directory.
 
 ---
 
