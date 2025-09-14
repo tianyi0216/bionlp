@@ -1,0 +1,15 @@
+dataset_name,group,original_samples,final_samples,retention_rate
+hoc,literature_mc,17464,21,0.12
+PubMedQA,literature_mc,212269,2479,1.17
+NFCorpus,literature_open,169759,1258,0.74
+BioNLI,literature_open,24658,2,0.01
+BC5CDR,literature_open,6000,1240,20.67
+MedMCQA,exam_mc,187005,665,0.36
+JAMA,exam_mc,3042,1520,49.97
+MedBullets5,exam_mc,616,297,48.21
+MedBullets4,exam_mc,616,18,2.92
+MedQA-USMLE,exam_open,12722,511,4.02
+LiveQA,exam_open,602,488,81.06
+MedicationQA,exam_open,689,500,72.57
+MedQuAD,exam_open,2572,500,19.44
+MeQSum,exam_open,1000,501,50.1
