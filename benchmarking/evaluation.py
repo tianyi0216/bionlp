@@ -231,7 +231,7 @@ def main():
     parser.add_argument("--max_tokens", type=int, default=2048,
                        help="Maximum tokens to generate")
     parser.add_argument("--groups", nargs="+", 
-                       default=["literature_open", "exam_open"],
+                       default=["literature_mc", "literature_open", "exam_mc", "exam_open"],
                        help="Dataset groups to evaluate")
     
     args = parser.parse_args()
