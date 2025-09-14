@@ -166,22 +166,6 @@ SAMPLE_SIZE="50" TEMPERATURE="0.3" ./run.sh
 - `TENSOR_PARALLEL_SIZE`: GPU parallelism (default: "2")
 - `CHAT_TEMPLATE`: Template for Qwen3 (use "qwen3_nonthinking")
 
-### **For Collaborators - Simple Instructions:**
-
-```bash
-# 1. Environment setup
-curl -LsSf https://astral.sh/uv/install.sh | sh
-uv venv vllm --python 3.12
-source vllm/bin/activate
-uv pip install vllm==0.10.1 --torch-backend=auto
-uv pip install -r requirements.txt
-
-# 2. Run complete experiment (deployment + evaluation)
-./run.sh
-```
-
-**That's it!** Results will be saved to `results/` directory.
-
 ---
 
 ## 1. Dataset Selection
