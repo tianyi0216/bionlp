@@ -4,6 +4,15 @@ import re
 from typing import List, Optional, Tuple
 
 import pandas as pd
+import sys
+from pathlib import Path
+
+# Ensure project root is on sys.path so we can import clinical_trial utilities
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+
+from clinical_trial.preprocess_trial import TrialPreprocessor
 
 
 def _safe_literal_list(s: str) -> Optional[List[str]]:
@@ -166,19 +175,42 @@ def _derive_outcome_from_status(status: str) -> Optional[int]:
 
 
 def adapt_hint_dataframe(df: pd.DataFrame) -> pd.DataFrame:
-    """Adapt a HINT phase CSV DataFrame to the standard trial schema.
-    - Renames columns
-    - Normalizes list-like fields
-    - Splits eligibility criteria into inclusion/exclusion
+    """Adapt HINT DataFrame with minimal logic, delegating to core utilities.
+    Steps:
+    1) Minimal renames + list-like cleanup
+    2) Use TrialPreprocessor to validate/clean and split inclusion/exclusion
     """
     df = _standardize_columns(df)
 
-    # Split inclusion/exclusion criteria
-    if "eligibility_criteria" in df.columns:
-        inc_exc = df["eligibility_criteria"].apply(_split_eligibility_criteria)
-        df["inclusion_criteria"] = [inc for inc, _ in inc_exc]
-        df["exclusion_criteria"] = [exc for _, exc in inc_exc]
-
+    pre = TrialPreprocessor(required_fields=None)
+    df = pre._validate_and_clean_df(df)
+    df = pre.preprocess(df, extract_criteria=True)
+    
+    # Ensure 'brief_summary' exists and is informative for LLM prompts
+    if 'brief_summary' not in df.columns:
+        df['brief_summary'] = "none"
+    mask_missing = df['brief_summary'].astype(str).str.strip().str.lower().isin(['', 'none', 'nan'])
+    
+    # 1) Prefer detailed_description when available (truncate)
+    if 'detailed_description' in df.columns:
+        dd_series = df.loc[mask_missing, 'detailed_description'].astype(str).str.strip()
+        dd_valid = ~dd_series.str.lower().isin(['', 'none', 'nan'])
+        if dd_valid.any():
+            df.loc[mask_missing & dd_valid, 'brief_summary'] = dd_series[dd_valid].apply(lambda s: s[:1000])
+            mask_missing = df['brief_summary'].astype(str).str.strip().str.lower().isin(['', 'none', 'nan'])
+    
+    # 2) Synthesize from title + condition when still missing
+    if mask_missing.any():
+        def _synthesize_summary(row):
+            title = str(row.get('brief_title', '')).strip()
+            cond = str(row.get('condition', '')).strip()
+            parts = []
+            if title and title.lower() not in ('none', 'nan'):
+                parts.append(title)
+            if cond and cond.lower() not in ('none', 'nan'):
+                parts.append(f"Condition: {cond}")
+            return '. '.join(parts) if parts else 'N/A'
+        df.loc[mask_missing, 'brief_summary'] = df.loc[mask_missing].apply(_synthesize_summary, axis=1)
     return df
 
 
@@ -187,16 +219,36 @@ def compute_outcome_labels(
     prefer_label: bool = True,
     drop_undefined: bool = True,
 ) -> pd.DataFrame:
-    """Compute final outcome labels using provided label or derived from status.
-    - prefer_label: if True, use existing binary 'label' when present
-    - drop_undefined: drop rows where outcome cannot be determined
-    Adds columns: 'derived_outcome', 'outcome', 'outcome_conflict' (optional)
+    """Compute final outcome labels preferring heavy utility, fallback to local mapping.
+    - Tries clinical_trial.outcome_prediction.TrialOutcomeProcessor
+    - Overlays provided binary `label` if requested
+    - Drops undefined outcomes if requested
     """
     df = df.copy()
 
-    # Normalize provided label
-    provided_label = None
-    if "label" in df.columns:
+    used_heavy = False
+    try:
+        # Ensure outcome_prediction can resolve its local import
+        from clinical_trial import preprocess_trial as _preprocess_trial  # noqa: F401
+        import sys as _sys
+        _sys.modules.setdefault('preprocess_trial', _preprocess_trial)
+        from clinical_trial.outcome_prediction import TrialOutcomeProcessor as _TOP
+        top = _TOP()
+        df_derived = top._process_outcome_labels(df)
+        if "nct_id" in df_derived.columns and "nct_id" in df.columns:
+            outcome_map = df_derived.set_index("nct_id")["outcome"]
+            df["outcome"] = df["nct_id"].map(outcome_map)
+        elif "outcome" in df_derived.columns and len(df_derived) == len(df):
+            df["outcome"] = df_derived["outcome"].values
+        used_heavy = True
+    except Exception:
+        pass
+
+    if not used_heavy:
+        derived = df["overall_status"].apply(_derive_outcome_from_status) if "overall_status" in df.columns else pd.Series([None] * len(df))
+        df["outcome"] = derived
+
+    if prefer_label and "label" in df.columns:
         def _to_int01(x):
             try:
                 if pd.isna(x):
@@ -205,36 +257,10 @@ def compute_outcome_labels(
                 if xi in (0, 1):
                     return xi
             except Exception:
-                pass
+                return None
             return None
-        provided_label = df["label"].apply(_to_int01)
-
-    # Derive from status
-    derived = df["overall_status"].apply(_derive_outcome_from_status) if "overall_status" in df.columns else pd.Series([None] * len(df))
-    df["derived_outcome"] = derived
-
-    # Choose final
-    final = []
-    conflicts = []
-    for i in range(len(df)):
-        p = provided_label[i] if provided_label is not None else None
-        d = derived[i]
-        chosen = None
-        conflict = False
-        if prefer_label and p is not None:
-            chosen = p
-            if d is not None and d != p:
-                conflict = True
-        elif d is not None:
-            chosen = d
-        elif p is not None:
-            chosen = p
-        final.append(chosen)
-        conflicts.append(conflict)
-
-    df["outcome"] = final
-    if any(conflicts):
-        df["outcome_conflict"] = conflicts
+        provided = df["label"].apply(_to_int01)
+        df.loc[provided.notna(), "outcome"] = provided[provided.notna()]
 
     if drop_undefined:
         df = df.dropna(subset=["outcome"]).reset_index(drop=True)
@@ -247,56 +273,48 @@ def generate_llm_outcome_dataset(
     include_labels: bool = True,
     max_criteria_chars: Optional[int] = 4000,
 ) -> pd.DataFrame:
-    """Create an LLM-ready dataset with 'prompt' and optional 'response'.
-    The prompt summarizes key trial fields and asks to predict Successful/Failed.
-    """
-    df = df.copy()
+    """Create an LLM-ready dataset using heavy helper when possible, fallback locally."""
+    try:
+        from clinical_trial import preprocess_trial as _preprocess_trial  # noqa: F401
+        import sys as _sys
+        _sys.modules.setdefault('preprocess_trial', _preprocess_trial)
+        from clinical_trial.outcome_prediction import create_llm_dataset_for_trial_outcome_prediction as _mk
+        return _mk(df, include_labels=include_labels)
+    except Exception:
+        pass
 
+    df = df.copy()
     prompts = []
     responses = []
-
     for _, row in df.iterrows():
-        inc = str(row.get("inclusion_criteria", "")).strip()
-        exc = str(row.get("exclusion_criteria", "")).strip()
-        crit = ""
-        if inc or exc:
-            crit = "Inclusion Criteria:\n" + (inc if inc else "(none)") + "\n\nExclusion Criteria:\n" + (exc if exc else "(none)")
-        else:
-            crit = str(row.get("eligibility_criteria", "")).strip()
-
-        if max_criteria_chars is not None and isinstance(crit, str) and len(crit) > max_criteria_chars:
-            crit = crit[:max_criteria_chars] + "\n...[truncated]"
-
-        status_text = str(row.get("overall_status", "N/A"))
-        why = str(row.get("why_stopped", row.get("why_stop", ""))).strip()
-        why_snippet = f"\n- Why Stopped: {why}" if why and why.lower() not in ("", "none", "nan") else ""
-
+        nct_id = row.get('nct_id', 'N/A')
+        title = row.get('brief_title', 'N/A')
+        summary = row.get('brief_summary', 'N/A')
+        phase = row.get('phase', 'N/A')
+        condition = row.get('condition', 'N/A')
+        criteria = row.get('eligibility_criteria', '')
+        criteria = '' if pd.isna(criteria) else str(criteria)
+        if max_criteria_chars is not None and isinstance(criteria, str) and len(criteria) > max_criteria_chars:
+            criteria = criteria[:max_criteria_chars] + "\n...[truncated]"
         prompt = f"""
-You are a clinical trial analyst. Based on the following information, determine whether this clinical trial completed successfully or failed.
+You are a clinical trial analyst. Based on the following information, determine whether this clinical trial was ultimately successful or failed.
 
 Trial Information:
-- ID: {row.get('nct_id', 'N/A')}
-- Title: {row.get('brief_title', 'N/A')}
-- Phase: {row.get('phase', 'N/A')}
-- Condition(s): {row.get('condition', 'N/A')}
-- Status: {status_text}{why_snippet}
+- ID: {nct_id}
+- Title: {title}
+- Summary: {summary}
+- Phase: {phase}
+- Condition: {condition}
+- Eligibility Criteria: {criteria}
 
-Eligibility Summary:
-{crit}
-
-Question: Predict the final outcome of the trial.
-Respond with exactly one word: "Successful" or "Failed".
+Question: Based on this information, predict whether the trial completed successfully or failed.
+Respond with either "Successful" or "Failed".
 Answer:
 """.strip()
         prompts.append(prompt)
-
         if include_labels:
             out = row.get("outcome", None)
-            if out is None:
-                responses.append("")
-            else:
-                responses.append("Successful" if int(out) == 1 else "Failed")
-
+            responses.append("" if out is None else ("Successful" if int(out) == 1 else "Failed"))
     out_df = pd.DataFrame({"prompt": prompts})
     if include_labels:
         out_df["response"] = responses
