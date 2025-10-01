@@ -3,9 +3,9 @@ set -e
 
 SERVED_MODEL_NAME=${SERVED_MODEL_NAME:-"med-llama3-8b"}
 USE_INSTRUCT=${USE_INSTRUCT:-"false"}
-SAMPLE_SIZE=${SAMPLE_SIZE:-"100"}
+SAMPLE_SIZE=${SAMPLE_SIZE:-"2500"}
 TEMPERATURE=${TEMPERATURE:-"0.0"}
-MAX_TOKENS=${MAX_TOKENS:-"256"}
+MAX_TOKENS=${MAX_TOKENS:-"2048"}
 DATASETS=${DATASETS:-"literature_mc,literature_open,exam_mc,exam_open"}
 
 export no_proxy="localhost,127.0.0.1,::1"
