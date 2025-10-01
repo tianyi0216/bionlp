@@ -27,7 +27,10 @@ source vllm/bin/activate
 pip install vllm==0.10.1 --torch-backend=auto
 pip install -r requirements.txt
 
-# 2. Run the complete experiment (includes deployment + evaluation)
+# 2. Deploy the vLLM server (runs in background)
+./deploy.sh
+
+# 3. Run the evaluation (assumes server is running)
 ./run.sh
 ```
 
@@ -115,21 +118,21 @@ This will:
 
 ## Automated Deployment and Evaluation
 
-### **Complete Pipeline with `run.sh`:**
+### **Deployment and Evaluation with `deploy.sh` + `run.sh`:**
 
-For fully automated deployment and evaluation, use the `run.sh` script:
+For a clean split between deployment and evaluation:
 
 ```bash
-# After environment setup, run everything automatically
+# 1) Start vLLM server (background)
+./deploy.sh
+
+# 2) Run evaluation
 ./run.sh
 ```
 
-**What `run.sh` does:**
-1. **Deploys vLLM server** with Me-LLaMA model automatically
-2. **Waits for server** to be ready (up to 10 minutes)
-3. **Runs evaluation** on all 4 dataset groups
-4. **Saves results** to `results/` directory
-5. **Cleans up** server process when finished
+**What these scripts do:**
+- `deploy.sh`: Starts vLLM, waits until it's ready, and leaves it running
+- `run.sh`: Runs evaluation on selected datasets and saves results to `results/`
 
 ### **Customizing the Run:**
 
@@ -140,7 +143,7 @@ MODEL_NAME="Qwen/Qwen3-32B" SERVED_MODEL_NAME="qwen3-32b" \
 USE_INSTRUCT="true" CHAT_TEMPLATE="qwen3_nonthinking" ./run.sh
 ```
 
-**Run specific datasets only:**
+**Run specific datasets only (set before running `run.sh`):**
 ```bash
 # Run only exam datasets
 DATASETS="exam_mc,exam_open" ./run.sh
