@@ -5,10 +5,10 @@
   </component>
   <component name="ChangeListManager">
     <list default="true" id="721b41ea-9664-4bf2-b382-d8af646f9829" name="Changes" comment="">
-      <change afterPath="$PROJECT_DIR$/patient/demo_data/NaturalLanguage.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/.idea/bionlp.iml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/bionlp.iml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/.idea/misc.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/misc.xml" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/patient/demo_data/clinical_trials_analysis_dataloader.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/.idea/.name" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/.name" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/patient/demo_data/NaturalLanguage.py" beforeDir="false" afterPath="$PROJECT_DIR$/patient/demo_data/NaturalLanguage.py" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -33,20 +33,49 @@
     <option name="hideEmptyMiddlePackages" value="true" />
     <option name="showLibraryContents" value="true" />
   </component>
-  <component name="PropertiesComponent"><![CDATA[{
-  "keyToString": {
-    "Python.NaturalLanguage.executor": "Run",
-    "RunOnceActivity.ShowReadmeOnStart": "true",
-    "RunOnceActivity.git.unshallow": "true",
-    "git-widget-placeholder": "master",
-    "node.js.detected.package.eslint": "true",
-    "node.js.detected.package.tslint": "true",
-    "node.js.selected.package.eslint": "(autodetect)",
-    "node.js.selected.package.tslint": "(autodetect)",
-    "nodejs_package_manager_path": "npm",
-    "vue.rearranger.settings.migration": "true"
+  <component name="PropertiesComponent">{
+  &quot;keyToString&quot;: {
+    &quot;Python.NaturalLanguage.executor&quot;: &quot;Run&quot;,
+    &quot;Python.clinical_trials_analysis_dataloader.executor&quot;: &quot;Run&quot;,
+    &quot;RunOnceActivity.ShowReadmeOnStart&quot;: &quot;true&quot;,
+    &quot;RunOnceActivity.git.unshallow&quot;: &quot;true&quot;,
+    &quot;git-widget-placeholder&quot;: &quot;master&quot;,
+    &quot;last_opened_file_path&quot;: &quot;D:/research/trial/bionlp/patient/demo_data&quot;,
+    &quot;node.js.detected.package.eslint&quot;: &quot;true&quot;,
+    &quot;node.js.detected.package.tslint&quot;: &quot;true&quot;,
+    &quot;node.js.selected.package.eslint&quot;: &quot;(autodetect)&quot;,
+    &quot;node.js.selected.package.tslint&quot;: &quot;(autodetect)&quot;,
+    &quot;nodejs_package_manager_path&quot;: &quot;npm&quot;,
+    &quot;settings.editor.selected.configurable&quot;: &quot;terminal&quot;,
+    &quot;vue.rearranger.settings.migration&quot;: &quot;true&quot;
   }
-}]]></component>
+}</component>
+  <component name="RunManager">
+    <configuration name="clinical_trials_analysis_dataloader" type="PythonConfigurationType" factoryName="Python" nameIsGenerated="true">
+      <module name="bionlp" />
+      <option name="ENV_FILES" value="" />
+      <option name="INTERPRETER_OPTIONS" value="" />
+      <option name="PARENT_ENVS" value="true" />
+      <envs>
+        <env name="PYTHONUNBUFFERED" value="1" />
+      </envs>
+      <option name="SDK_HOME" value="" />
+      <option name="SDK_NAME" value="research" />
+      <option name="WORKING_DIRECTORY" value="D:\research\trial\bionlp\patient\demo_data" />
+      <option name="IS_MODULE_SDK" value="false" />
+      <option name="ADD_CONTENT_ROOTS" value="true" />
+      <option name="ADD_SOURCE_ROOTS" value="true" />
+      <EXTENSION ID="PythonCoverageRunConfigurationExtension" runner="coverage.py" />
+      <option name="SCRIPT_NAME" value="$PROJECT_DIR$/patient/demo_data/clinical_trials_analysis_dataloader.py" />
+      <option name="PARAMETERS" value="--task arm_design --split train --source hf --max-examples 3 --cache-dir .\tp_cache" />
+      <option name="SHOW_COMMAND_LINE" value="false" />
+      <option name="EMULATE_TERMINAL" value="false" />
+      <option name="MODULE_MODE" value="false" />
+      <option name="REDIRECT_INPUT" value="false" />
+      <option name="INPUT_FILE" value="" />
+      <method v="2" />
+    </configuration>
+  </component>
   <component name="SharedIndexes">
     <attachedChunks>
       <set>
@@ -67,6 +96,14 @@
       <workItem from="1752194291024" duration="13000" />
       <workItem from="1755995870458" duration="617000" />
       <workItem from="1758313959555" duration="6425000" />
+      <workItem from="1759376572440" duration="889000" />
+      <workItem from="1759378369830" duration="151000" />
+      <workItem from="1759378541185" duration="1000" />
+      <workItem from="1759378696549" duration="23000" />
+      <workItem from="1759378932225" duration="532000" />
+      <workItem from="1759445825612" duration="628000" />
+      <workItem from="1759454660308" duration="5995000" />
+      <workItem from="1759464563407" duration="1654000" />
     </task>
     <servers />
   </component>
@@ -74,6 +111,8 @@
     <option name="version" value="3" />
   </component>
   <component name="com.intellij.coverage.CoverageDataManagerImpl">
+    <SUITE FILE_PATH="coverage/NaturalLanguage_py$NaturalLanguage.coverage" NAME="NaturalLanguage 覆盖结果" MODIFIED="1759378973934" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$/patient/demo_data" />
+    <SUITE FILE_PATH="coverage/clinical_trials_analysis_dataloader_py$clinical_trials_analysis_dataloader.coverage" NAME="clinical_trials_analysis_dataloader 覆盖结果" MODIFIED="1759466097755" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="D:\research\trial\bionlp\patient\demo_data" />
     <SUITE FILE_PATH="coverage/template_patient_prediction_py$NaturalLanguage.coverage" NAME="NaturalLanguage 覆盖结果" MODIFIED="1758315726033" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$/patient/demo_data" />
   </component>
 </project>
