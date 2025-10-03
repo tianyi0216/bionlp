@@ -11,4 +11,6 @@
 /clinical_trial/trial_data
 .DS_Store
 /converted_qa
-/converted_qa_old
+/converted_qa_oldpatient/demo_data/patient/dataset.jsonl
+.idea/
+local_data/
