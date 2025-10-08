@@ -16,9 +16,25 @@ import argparse
 import csv
 import os
 import json
-from typing import List, Dict
+from typing import List, Dict, Tuple
 
 import pandas as pd
+import numpy as np
+from sklearn.metrics import (
+    accuracy_score, precision_score, recall_score, f1_score,
+    roc_auc_score, average_precision_score, confusion_matrix
+)
+
+
+def save_detailed_results(results: List[Dict], output_file: str):
+    """Save detailed results to JSONL file (one JSON object per line)."""
+    import os
+    os.makedirs(os.path.dirname(output_file), exist_ok=True) if os.path.dirname(output_file) else None
+    
+    with open(output_file, 'w') as f:
+        for result in results:
+            f.write(json.dumps(result, ensure_ascii=False) + '\n')
+    print(f"Saved {len(results)} detailed results to {output_file}")
 
 
 def create_model_generate_func(model_name: str, use_instruct: bool = True, **kwargs):
@@ -100,9 +116,21 @@ def test_server_connection(model_name: str, use_instruct: bool = True) -> bool:
 
 
 def parse_outcome(text: str) -> str:
-    """Map model output to 'Successful' or 'Failed' if possible."""
+    """Parse outcome with JSON format first, fallback to fuzzy matching."""
     if not isinstance(text, str):
         return ""
+    
+    # Try JSON parsing first
+    try:
+        data = json.loads(text.strip())
+        if isinstance(data, dict) and "prediction" in data:
+            pred = str(data["prediction"]).strip()
+            if pred in {"Successful", "Failed"}:
+                return pred
+    except (json.JSONDecodeError, ValueError):
+        pass
+    
+    # Fallback to fuzzy matching
     t = text.strip().lower()
     # common variants
     if "successful" in t or t == "success":
@@ -120,6 +148,67 @@ def parse_outcome(text: str) -> str:
     if "failed" in t:
         return "Failed"
     return ""
+
+
+def compute_classification_metrics(preds: List[str], targets: List[str], pos_label: str = "Successful") -> Dict[str, float]:
+    """
+    Compute comprehensive classification metrics for binary classification.
+    
+    Args:
+        preds: List of predicted labels
+        targets: List of ground truth labels
+        pos_label: The positive class label for binary classification
+        
+    Returns:
+        Dictionary containing accuracy, precision, recall, f1, roc_auc, pr_auc
+    """
+    # Filter out invalid predictions
+    valid_pairs = [(p, t) for p, t in zip(preds, targets) if p in {"Successful", "Failed"}]
+    
+    if len(valid_pairs) == 0:
+        return {
+            'accuracy': 0.0,
+            'precision': 0.0,
+            'recall': 0.0,
+            'f1_score': 0.0,
+            'roc_auc': 0.0,
+            'pr_auc': 0.0,
+            'evaluated': 0,
+            'skipped': len(targets),
+        }
+    
+    valid_preds, valid_targets = zip(*valid_pairs)
+    
+    # Convert to binary (1 for positive class, 0 for negative)
+    y_true = np.array([1 if t == pos_label else 0 for t in valid_targets])
+    y_pred = np.array([1 if p == pos_label else 0 for p in valid_preds])
+    
+    # Compute metrics
+    accuracy = accuracy_score(y_true, y_pred)
+    precision = precision_score(y_true, y_pred, zero_division=0)
+    recall = recall_score(y_true, y_pred, zero_division=0)
+    f1 = f1_score(y_true, y_pred, zero_division=0)
+    
+    # ROC-AUC and PR-AUC (only if both classes are present)
+    roc_auc = 0.0
+    pr_auc = 0.0
+    if len(np.unique(y_true)) > 1:
+        try:
+            roc_auc = roc_auc_score(y_true, y_pred)
+            pr_auc = average_precision_score(y_true, y_pred)
+        except Exception:
+            pass
+    
+    return {
+        'accuracy': float(accuracy),
+        'precision': float(precision),
+        'recall': float(recall),
+        'f1_score': float(f1),
+        'roc_auc': float(roc_auc),
+        'pr_auc': float(pr_auc),
+        'evaluated': len(valid_pairs),
+        'skipped': len(targets) - len(valid_pairs),
+    }
 
 
 def _row_to_jsonable_dict(row: pd.Series) -> dict:
@@ -152,8 +241,10 @@ def build_prompt_outcome_json(row: pd.Series) -> str:
             record.pop(k)
     record_str = json.dumps(record, ensure_ascii=False)
     prompt = (
-        "Given a clinical trial record in JSON format, predict whether the trial was ultimately successful or failed. "
-        "Return only one word: Successful or Failed.\n\n" + record_str
+        "Given a clinical trial record in JSON format, predict whether the trial was ultimately successful or failed.\n\n"
+        "Return your answer as a JSON object with this exact format:\n"
+        '{"prediction": "Successful" or "Failed"}\n\n'
+        f"Clinical trial record:\n{record_str}"
     )
     return prompt
 
@@ -165,6 +256,7 @@ def evaluate_outcome_dataset(
     temperature: float,
     max_tokens: int,
     sample_size: int = None,
+    output_file: str = None,
 ) -> Dict[str, float]:
     df = pd.read_csv(csv_path)
     if 'prompt' not in df.columns:
@@ -183,31 +275,38 @@ def evaluate_outcome_dataset(
 
     preds: List[str] = []
     targets: List[str] = []
-    for _, row in df.iterrows():
+    detailed_results = []
+    
+    for idx, row in df.iterrows():
         prompt = str(row['prompt'])
         output_text = gen(prompt)
         parsed = parse_outcome(output_text)
         preds.append(parsed)
+        
+        ground_truth = str(row['response']) if has_labels else None
         if has_labels:
-            targets.append(str(row['response']))
+            targets.append(ground_truth)
+        
+        # Save detailed result
+        detailed_results.append({
+            "trial_id": str(row.get('nct_id', idx)),  # Use index if no ID
+            "task": "hint_outcome",
+            "prompt": prompt[:500] + "..." if len(prompt) > 500 else prompt,
+            "raw_llm_output": output_text,
+            "parsed_prediction": parsed,
+            "ground_truth": ground_truth,
+            "correct": parsed == ground_truth if (parsed and ground_truth) else False,
+        })
 
     metrics = {}
     if has_labels:
-        if len(targets) == 0:
-            metrics['accuracy'] = 0.0
-        else:
-            correct = 0
-            total = 0
-            for p, t in zip(preds, targets):
-                if p in {"Successful", "Failed"}:
-                    total += 1
-                    if p == t:
-                        correct += 1
-            metrics['accuracy'] = correct / total if total > 0 else 0.0
-            metrics['evaluated'] = total
-            metrics['skipped'] = len(targets) - total
+        metrics = compute_classification_metrics(preds, targets, pos_label="Successful")
     else:
         metrics['predictions'] = len(preds)
+    
+    # Save detailed results to file if specified
+    if output_file:
+        save_detailed_results(detailed_results, output_file)
 
     return metrics
 
@@ -219,6 +318,7 @@ def evaluate_outcome_from_standardized(
     temperature: float,
     max_tokens: int,
     sample_size: int = None,
+    output_file: str = None,
 ) -> Dict[str, float]:
     df = pd.read_csv(csv_path)
 
@@ -234,7 +334,9 @@ def evaluate_outcome_from_standardized(
 
     preds: List[str] = []
     targets: List[str] = []
+    detailed_results = []
     has_labels = False
+    
     if 'outcome' in df.columns:
         has_labels = True
         targets = ["Successful" if int(x) == 1 else "Failed" for x in df['outcome'].tolist()]
@@ -242,29 +344,35 @@ def evaluate_outcome_from_standardized(
         has_labels = True
         targets = ["Successful" if int(x) == 1 else "Failed" for x in df['label'].tolist()]
 
-    for _, row in df.iterrows():
+    for idx, row in df.iterrows():
+        trial_id = str(row.get('nct_id', row.get('nctid', idx)))
         prompt = build_prompt_outcome_json(row)
         output_text = gen(prompt)
         parsed = parse_outcome(output_text)
         preds.append(parsed)
+        
+        ground_truth = targets[idx] if has_labels and idx < len(targets) else None
+        
+        # Save detailed result
+        detailed_results.append({
+            "trial_id": trial_id,
+            "task": "hint_standardized_outcome",
+            "prompt": prompt[:500] + "..." if len(prompt) > 500 else prompt,
+            "raw_llm_output": output_text,
+            "parsed_prediction": parsed,
+            "ground_truth": ground_truth,
+            "correct": parsed == ground_truth if (parsed and ground_truth) else False,
+        })
 
     metrics = {}
     if has_labels:
-        if len(targets) == 0:
-            metrics['accuracy'] = 0.0
-        else:
-            correct = 0
-            total = 0
-            for p, t in zip(preds, targets):
-                if p in {"Successful", "Failed"}:
-                    total += 1
-                    if p == t:
-                        correct += 1
-            metrics['accuracy'] = correct / total if total > 0 else 0.0
-            metrics['evaluated'] = total
-            metrics['skipped'] = len(targets) - total
+        metrics = compute_classification_metrics(preds, targets, pos_label="Successful")
     else:
         metrics['predictions'] = len(preds)
+    
+    # Save detailed results to file if specified
+    if output_file:
+        save_detailed_results(detailed_results, output_file)
 
     return metrics
 
@@ -278,6 +386,7 @@ def main():
     parser.add_argument("--temperature", type=float, default=0.0)
     parser.add_argument("--max_tokens", type=int, default=256)
     parser.add_argument("--sample_size", type=int, default=0, help="Evaluate only N samples (0=all)")
+    parser.add_argument("--output_file", default=None, help="Output JSONL file for detailed per-sample results")
 
     args = parser.parse_args()
     use_instruct = args.use_instruct.lower() in ("true", "1", "yes", "on")
@@ -300,6 +409,7 @@ def main():
             temperature=args.temperature,
             max_tokens=args.max_tokens,
             sample_size=args.sample_size if args.sample_size > 0 else None,
+            output_file=args.output_file,
         )
     else:
         metrics = evaluate_outcome_dataset(
@@ -309,6 +419,7 @@ def main():
             temperature=args.temperature,
             max_tokens=args.max_tokens,
             sample_size=args.sample_size if args.sample_size > 0 else None,
+            output_file=args.output_file,
         )
     print(metrics)
 

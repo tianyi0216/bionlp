@@ -18,6 +18,22 @@ import pandas as pd
 import json
 import csv
 import random
+import numpy as np
+from sklearn.metrics import (
+    accuracy_score, precision_score, recall_score, f1_score,
+    roc_auc_score, average_precision_score, confusion_matrix
+)
+
+
+def save_detailed_results(results: List[Dict], output_file: str):
+    """Save detailed results to JSONL file (one JSON object per line)."""
+    import os
+    os.makedirs(os.path.dirname(output_file), exist_ok=True) if os.path.dirname(output_file) else None
+    
+    with open(output_file, 'w') as f:
+        for result in results:
+            f.write(json.dumps(result, ensure_ascii=False) + '\n')
+    print(f"Saved {len(results)} detailed results to {output_file}")
 
 
 def create_model_generate_func(model_name: str, use_instruct: bool = True, **kwargs):
@@ -107,6 +123,93 @@ def synthesize_summary(row: pd.Series) -> str:
     return '. '.join(parts) if parts else 'N/A'
 
 
+def compute_classification_metrics(preds: List[str], targets: List[str], pos_label: str = "Alive") -> Dict[str, float]:
+    """
+    Compute comprehensive classification metrics for binary classification.
+    
+    Args:
+        preds: List of predicted labels
+        targets: List of ground truth labels
+        pos_label: The positive class label for binary classification
+        
+    Returns:
+        Dictionary containing accuracy, precision, recall, f1, roc_auc, pr_auc
+    """
+    # Filter out invalid predictions (must contain 'alive' or 'dead', or be valid JSON)
+    valid_pairs = []
+    parsed_preds = []
+    for p, t in zip(preds, targets):
+        # Try JSON parsing first
+        parsed = None
+        try:
+            data = json.loads(p.strip())
+            if isinstance(data, dict) and "prediction" in data:
+                pred = str(data["prediction"]).strip()
+                if pred in {"Alive", "Dead"}:
+                    parsed = pred
+        except (json.JSONDecodeError, ValueError):
+            pass
+        
+        # Fallback to fuzzy matching
+        if not parsed:
+            p_lower = p.lower()
+            if 'alive' in p_lower:
+                parsed = 'Alive'
+            elif 'dead' in p_lower:
+                parsed = 'Dead'
+        
+        if parsed:
+            parsed_preds.append(parsed)
+            valid_pairs.append(t)
+    
+    if len(valid_pairs) == 0:
+        return {
+            'accuracy': 0.0,
+            'precision': 0.0,
+            'recall': 0.0,
+            'f1_score': 0.0,
+            'roc_auc': 0.0,
+            'pr_auc': 0.0,
+            'evaluated': 0,
+            'skipped': len(targets),
+            'count': len(targets),
+        }
+    
+    valid_targets = valid_pairs
+    
+    # Convert to binary (1 for positive class, 0 for negative)
+    y_true = np.array([1 if t == pos_label else 0 for t in valid_targets])
+    y_pred = np.array([1 if p == pos_label else 0 for p in parsed_preds])
+    
+    # Compute metrics
+    accuracy = accuracy_score(y_true, y_pred)
+    precision = precision_score(y_true, y_pred, zero_division=0)
+    recall = recall_score(y_true, y_pred, zero_division=0)
+    f1 = f1_score(y_true, y_pred, zero_division=0)
+    
+    # ROC-AUC and PR-AUC (only if both classes are present)
+    roc_auc = 0.0
+    pr_auc = 0.0
+    if len(np.unique(y_true)) > 1:
+        try:
+            roc_auc = roc_auc_score(y_true, y_pred)
+            pr_auc = average_precision_score(y_true, y_pred)
+        except Exception:
+            pass
+    
+    return {
+        'accuracy': float(accuracy),
+        'precision': float(precision),
+        'recall': float(recall),
+        'f1_score': float(f1),
+        'roc_auc': float(roc_auc),
+        'pr_auc': float(pr_auc),
+        'evaluated': len(valid_pairs),
+        'skipped': len(targets) - len(valid_pairs),
+        'count': len(targets),
+    }
+
+
 def build_prompt_individual_mortality(record: dict) -> str:
     def _to_jsonable(v):
         import math
@@ -140,7 +243,12 @@ def build_prompt_individual_mortality(record: dict) -> str:
             return str(v)
 
     safe_record = {str(k): _to_jsonable(v) for k, v in record.items()}
-    prompt = 'Given a patient record in JSON format, your task is to predict the patient survival status. The only valid responses are "Alive" or "Dead".\n\n'+json.dumps(safe_record, ensure_ascii=False)
+    prompt = (
+        'Given a patient record in JSON format, predict the patient survival status.\n\n'
+        'Return your answer as a JSON object with this exact format:\n'
+        '{"prediction": "Alive" or "Dead"}\n\n'
+        f'Patient record:\n{json.dumps(safe_record, ensure_ascii=False)}'
+    )
     return prompt
 
 
@@ -273,6 +381,7 @@ def evaluate_pytrials(
     temperature: float,
     max_tokens: int,
     sample_size: int = None,
+    output_file: str = None,
 ) -> Dict[str, float]:
     
     records, labels = load_pytrials_split_dict(data_file)
@@ -293,28 +402,56 @@ def evaluate_pytrials(
 
     preds: List[str] = []
     targets: List[str] = []
+    detailed_results = []
+    
     for i in range(len(records)):
+        # Extract patient ID if available, otherwise use index
+        patient_id = records[i].get("Patient ID", f"patient_{i}")
         prompt = build_prompt_individual_mortality(records[i])
         output_text = gen(prompt)
         preds.append(output_text)
-        targets.append(labels[i]["Survival status"])
-
-    correct = 0
-    total = 0
-    for p, t in zip(preds, targets):
-        if 'alive' in p.lower() or 'dead' in p.lower():
-            total += 1
-            if ('alive' in p.lower() and t == 'Alive') or ('dead' in p.lower() and t == 'Dead'):
-                correct += 1
-        else:
-            continue
+        ground_truth = labels[i]["Survival status"]
+        targets.append(ground_truth)
         
-    return {
-        'accuracy': (correct / total) if total > 0 else 0.0,
-        'evaluated': total,
-        'skipped': len(targets) - total,
-        'count': len(targets),
-    }
+        # Parse the prediction for the detailed results
+        parsed = None
+        try:
+            data = json.loads(output_text.strip())
+            if isinstance(data, dict) and "prediction" in data:
+                pred = str(data["prediction"]).strip()
+                if pred in {"Alive", "Dead"}:
+                    parsed = pred
+        except (json.JSONDecodeError, ValueError):
+            pass
+        
+        # Fallback to fuzzy matching
+        if not parsed:
+            p_lower = output_text.lower()
+            if 'alive' in p_lower:
+                parsed = 'Alive'
+            elif 'dead' in p_lower:
+                parsed = 'Dead'
+        
+        # Save detailed result
+        detailed_results.append({
+            "patient_id": str(patient_id),
+            "task": "pytrials_patient_survival",
+            "prompt": prompt[:500] + "..." if len(prompt) > 500 else prompt,
+            "raw_llm_output": output_text,
+            "parsed_prediction": parsed,
+            "ground_truth": ground_truth,
+            "correct": parsed == ground_truth if parsed else False,
+            "survival_months": labels[i].get("Survival Months"),
+        })
+
+    # Use new comprehensive metrics function
+    metrics = compute_classification_metrics(preds, targets, pos_label="Alive")
+    
+    # Save detailed results to file if specified
+    if output_file:
+        save_detailed_results(detailed_results, output_file)
+    
+    return metrics
 
 def main():
     parser = argparse.ArgumentParser(description="Evaluate TrialBench tasks via vLLM")
@@ -324,6 +461,7 @@ def main():
     parser.add_argument("--temperature", type=float, default=0.0)
     parser.add_argument("--max_tokens", type=int, default=256)
     parser.add_argument("--sample_size", type=int, default=0, help="Evaluate only N samples (0=all)")
+    parser.add_argument("--output_file", default=None, help="Output JSONL file for detailed per-sample results")
 
     args = parser.parse_args()
     use_instruct = args.use_instruct.lower() in ("true", "1", "yes", "on")
@@ -341,6 +479,7 @@ def main():
         temperature=args.temperature,
         max_tokens=args.max_tokens,
         sample_size=args.sample_size if args.sample_size > 0 else None,
+        output_file=args.output_file,
     )
     print(metrics)
 
