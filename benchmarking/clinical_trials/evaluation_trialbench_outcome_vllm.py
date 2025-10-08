@@ -24,6 +24,7 @@ import json
 import csv
 import random
 import numpy as np
+from tqdm import tqdm
 from sklearn.metrics import (
     accuracy_score, precision_score, recall_score, f1_score,
     roc_auc_score, average_precision_score, confusion_matrix,
@@ -404,16 +405,36 @@ def _row_to_jsonable_dict(row: pd.Series) -> dict:
     return {str(k): _safe(v) for k, v in row.items()}
 
 
-def build_prompt_outcome(row: pd.Series, max_criteria_chars: int = 2000) -> str:
+def build_prompt_outcome(row: pd.Series, simple_prompt: bool = False, max_criteria_chars: int = 2000) -> str:
+    """Build outcome prediction prompt - simple or full JSON format."""
     record = _row_to_jsonable_dict(row)
-    record_str = json.dumps(record, ensure_ascii=False)
-    prompt = (
-        "Given a clinical trial record in JSON format, predict whether the trial was ultimately successful or failed.\n\n"
-        "Return your answer as a JSON object with this exact format:\n"
-        '{"prediction": "Successful" or "Failed"}\n\n'
-        f"Clinical trial record:\n{record_str}"
-    )
-    return prompt
+    
+    if simple_prompt:
+        phase = str(record.get("phase", "unknown"))
+        condition = str(record.get("condition", "unknown"))[:100]
+        drugs = str(record.get("drugs", "unknown"))[:200]
+        
+        return f"""You are a clinical trial expert. Predict whether the following clinical trial was ultimately Successful or Failed.
+
+Clinical Trial:
+Phase: {phase}
+Condition: {condition}
+Drug(s): {drugs}
+
+Prediction:
+A. Successful
+B. Failed
+
+Answer:"""
+    else:
+        record_str = json.dumps(record, ensure_ascii=False)
+        prompt = (
+            "Given a clinical trial record in JSON format, predict whether the trial was ultimately successful or failed.\n\n"
+            "Return your answer as a JSON object with this exact format:\n"
+            '{"prediction": "Successful" or "Failed"}\n\n'
+            f"Clinical trial record:\n{record_str}"
+        )
+        return prompt
 
 
 def build_prompt_duration(row: pd.Series, max_criteria_chars: int = 2000) -> str:
@@ -537,6 +558,7 @@ def evaluate_trialbench(
     max_tokens: int,
     sample_size: int = None,
     output_file: str = None,
+    simple_prompt: bool = False,
 ) -> Dict[str, float]:
     task_name = task_dir.rstrip('/').split('/')[-1]
 
@@ -569,9 +591,9 @@ def evaluate_trialbench(
     if task_name == 'trial-approval-forecasting':
         preds: List[str] = []
         targets: List[str] = []
-        for _, row in df.iterrows():
+        for _, row in tqdm(df.iterrows(), total=len(df), desc="Trial approval forecasting"):
             trial_id = str(row.get('nctid', 'unknown'))
-            prompt = build_prompt_outcome(row)
+            prompt = build_prompt_outcome(row, simple_prompt=simple_prompt)
             output_text = gen(prompt)
             parsed = parse_outcome(output_text)
             ground_truth = "Successful" if int(row.get('outcome', 0)) == 1 else "Failed"
@@ -609,7 +631,7 @@ def evaluate_trialbench(
         y = df['month'].astype(float).values
         preds_num: List[float] = []
         hits = 0
-        for idx, (_, row) in enumerate(df.iterrows()):
+        for idx, (_, row) in enumerate(tqdm(df.iterrows(), total=len(df), desc="Trial duration forecasting")):
             trial_id = str(row.get('nctid', 'unknown'))
             prompt = build_prompt_duration(row)
             output_text = gen(prompt)
@@ -663,7 +685,7 @@ def evaluate_trialbench(
     if task_name == 'trial-failure-reason-identification':
         preds: List[str] = []
         targets: List[str] = []
-        for _, row in df.iterrows():
+        for _, row in tqdm(df.iterrows(), total=len(df), desc="Trial failure reason identification"):
             trial_id = str(row.get('nctid', 'unknown'))
             prompt = build_prompt_reason(row)
             output_text = gen(prompt)
@@ -701,7 +723,7 @@ def evaluate_trialbench(
         # Target: mortality_rate (float) from test_y.csv
         y = df['mortality_rate'].astype(float).values
         preds_num: List[float] = []
-        for idx, (_, row) in enumerate(df.iterrows()):
+        for idx, (_, row) in enumerate(tqdm(df.iterrows(), total=len(df), desc="Mortality event prediction")):
             trial_id = str(row.get('nctid', 'unknown'))
             prompt = build_prompt_mortality(row)
             output_text = gen(prompt)
@@ -762,7 +784,7 @@ def evaluate_trialbench(
         else:
             raise ValueError("Neither 'dropout_rate' nor 'droupout_rate' found in test_y")
         preds_num: List[float] = []
-        for idx, (_, row) in enumerate(df.iterrows()):
+        for idx, (_, row) in enumerate(tqdm(df.iterrows(), total=len(df), desc="Patient dropout forecasting")):
             trial_id = str(row.get('nctid', 'unknown'))
             prompt = build_prompt_dropout(row)
             output_text = gen(prompt)
@@ -817,7 +839,7 @@ def evaluate_trialbench(
         # Target: serious_adverse_rate (float) from test_y.csv
         y = df['serious_adverse_rate'].astype(float).values
         preds_num: List[float] = []
-        for idx, (_, row) in enumerate(df.iterrows()):
+        for idx, (_, row) in enumerate(tqdm(df.iterrows(), total=len(df), desc="Serious adverse event forecasting")):
             trial_id = str(row.get('nctid', 'unknown'))
             prompt = build_prompt_adverse(row)
             output_text = gen(prompt)
@@ -878,7 +900,7 @@ def evaluate_trialbench(
         preds_min: List[int] = []
         preds_avg: List[int] = []
         
-        for idx, (_, row) in enumerate(df.iterrows()):
+        for idx, (_, row) in enumerate(tqdm(df.iterrows(), total=len(df), desc="Drug dose prediction")):
             trial_id = str(row.get('nctid', 'unknown'))
             prompt = build_prompt_dose(row)
             output_text = gen(prompt)
@@ -997,6 +1019,7 @@ def main():
     parser.add_argument("--phase", default="Phase1", help="Phase subdir (Phase1..Phase4); ignored for drug-dose-prediction")
     parser.add_argument("--model_name", default="med-llama3-8b", help="Served model name in vLLM server")
     parser.add_argument("--use_instruct", default="true", help="Use chat/instruct format (true/false)")
+    parser.add_argument("--simple_prompt", default="false", help="Use simple prompt (true) or full JSON prompt (false)")
     parser.add_argument("--temperature", type=float, default=0.0)
     parser.add_argument("--max_tokens", type=int, default=256)
     parser.add_argument("--sample_size", type=int, default=0, help="Evaluate only N samples (0=all)")
@@ -1004,6 +1027,7 @@ def main():
 
     args = parser.parse_args()
     use_instruct = args.use_instruct.lower() in ("true", "1", "yes", "on")
+    simple_prompt = args.simple_prompt.lower() in ("true", "1", "yes", "on")
 
     # print("Testing server connection...")
     # if not test_server_connection(args.model_name, use_instruct):
@@ -1020,6 +1044,7 @@ def main():
         max_tokens=args.max_tokens,
         sample_size=args.sample_size if args.sample_size > 0 else None,
         output_file=args.output_file,
+        simple_prompt=simple_prompt,
     )
     print(metrics)
 

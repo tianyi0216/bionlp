@@ -19,6 +19,7 @@ import json
 import csv
 import random
 import numpy as np
+from tqdm import tqdm
 from sklearn.metrics import (
     accuracy_score, precision_score, recall_score, f1_score,
     roc_auc_score, average_precision_score, confusion_matrix
@@ -210,46 +211,78 @@ def compute_classification_metrics(preds: List[str], targets: List[str], pos_lab
     }
 
 
-def build_prompt_individual_mortality(record: dict) -> str:
-    def _to_jsonable(v):
-        import math
-        try:
-            # Decode bytes → str
-            if isinstance(v, (bytes, bytearray)):
-                try:
-                    return v.decode('utf-8', errors='ignore')
-                except Exception:
-                    return v.decode('latin-1', errors='ignore')
-            # Pandas/NumPy NA handling
-            try:
-                import pandas as _pd
-                if _pd.isna(v):
-                    return None
-            except Exception:
-                pass
-            # NumPy scalars → Python scalars
-            try:
-                import numpy as _np
-                if isinstance(v, (_np.generic,)):
-                    return _np.asscalar(v) if hasattr(_np, 'asscalar') else v.item()
-            except Exception:
-                pass
-            if isinstance(v, float) and (math.isnan(v) or math.isinf(v)):
-                return None
-            # Fallback: ensure serializable
-            json.dumps(v)
-            return v
-        except Exception:
-            return str(v)
+def build_prompt_individual_mortality(record: dict, simple_prompt: bool = False) -> str:
+    """
+    Build prompt for patient survival prediction.
+    
+    Args:
+        record: Patient record dictionary
+        simple_prompt: If True, use simple prompt (better for pretrain models)
+                      If False, use full JSON prompt (better for instruct models)
+    """
+    if simple_prompt:
+        # Simple prompt format - extract key features
+        # Get some key clinical features if available
+        group = record.get("Group", "unknown")
+        treatment = record.get("Treatment assigned", "unknown")
+        tumor_size = record.get("Tumor Size", "unknown")
+        age_cat = record.get("Age category", "unknown")
+        
+        prompt = f"""You are a clinical expert. Predict whether the following patient is Alive or Dead.
 
-    safe_record = {str(k): _to_jsonable(v) for k, v in record.items()}
-    prompt = (
-        'Given a patient record in JSON format, predict the patient survival status.\n\n'
-        'Return your answer as a JSON object with this exact format:\n'
-        '{"prediction": "Alive" or "Dead"}\n\n'
-        f'Patient record:\n{json.dumps(safe_record, ensure_ascii=False)}'
-    )
-    return prompt
+Patient Information:
+Group: {group}
+Treatment: {treatment}
+Tumor Size: {tumor_size}
+Age: {age_cat}
+
+Based on the information above, is this patient:
+A. Alive
+B. Dead
+
+Answer:"""
+        return prompt
+    else:
+        # Full JSON format for instruct models
+        def _to_jsonable(v):
+            import math
+            try:
+                # Decode bytes → str
+                if isinstance(v, (bytes, bytearray)):
+                    try:
+                        return v.decode('utf-8', errors='ignore')
+                    except Exception:
+                        return v.decode('latin-1', errors='ignore')
+                # Pandas/NumPy NA handling
+                try:
+                    import pandas as _pd
+                    if _pd.isna(v):
+                        return None
+                except Exception:
+                    pass
+                # NumPy scalars → Python scalars
+                try:
+                    import numpy as _np
+                    if isinstance(v, (_np.generic,)):
+                        return _np.asscalar(v) if hasattr(_np, 'asscalar') else v.item()
+                except Exception:
+                    pass
+                if isinstance(v, float) and (math.isnan(v) or math.isinf(v)):
+                    return None
+                # Fallback: ensure serializable
+                json.dumps(v)
+                return v
+            except Exception:
+                return str(v)
+
+        safe_record = {str(k): _to_jsonable(v) for k, v in record.items()}
+        prompt = (
+            'Given a patient record in JSON format, predict the patient survival status.\n\n'
+            'Return your answer as a JSON object with this exact format:\n'
+            '{"prediction": "Alive" or "Dead"}\n\n'
+            f'Patient record:\n{json.dumps(safe_record, ensure_ascii=False)}'
+        )
+        return prompt
 
 
 def load_pytrials_split_dict(data_file: str):
@@ -382,6 +415,7 @@ def evaluate_pytrials(
     max_tokens: int,
     sample_size: int = None,
     output_file: str = None,
+    simple_prompt: bool = False,
 ) -> Dict[str, float]:
     
     records, labels = load_pytrials_split_dict(data_file)
@@ -404,10 +438,10 @@ def evaluate_pytrials(
     targets: List[str] = []
     detailed_results = []
     
-    for i in range(len(records)):
+    for i in tqdm(range(len(records)), desc="Evaluating PyTrials patient survival"):
         # Extract patient ID if available, otherwise use index
         patient_id = records[i].get("Patient ID", f"patient_{i}")
-        prompt = build_prompt_individual_mortality(records[i])
+        prompt = build_prompt_individual_mortality(records[i], simple_prompt=simple_prompt)
         output_text = gen(prompt)
         preds.append(output_text)
         ground_truth = labels[i]["Survival status"]
@@ -458,6 +492,7 @@ def main():
     parser.add_argument("--data_file", required=True, help="Path to data file")
     parser.add_argument("--model_name", default="gpt-oss-20b", help="Served model name in vLLM server")
     parser.add_argument("--use_instruct", default="true", help="Use chat/instruct format (true/false)")
+    parser.add_argument("--simple_prompt", default="false", help="Use simple prompt (true) or full JSON prompt (false)")
     parser.add_argument("--temperature", type=float, default=0.0)
     parser.add_argument("--max_tokens", type=int, default=256)
     parser.add_argument("--sample_size", type=int, default=0, help="Evaluate only N samples (0=all)")
@@ -465,6 +500,7 @@ def main():
 
     args = parser.parse_args()
     use_instruct = args.use_instruct.lower() in ("true", "1", "yes", "on")
+    simple_prompt = args.simple_prompt.lower() in ("true", "1", "yes", "on")
 
     print("Testing server connection...")
     if not test_server_connection(args.model_name, use_instruct):
@@ -480,6 +516,7 @@ def main():
         max_tokens=args.max_tokens,
         sample_size=args.sample_size if args.sample_size > 0 else None,
         output_file=args.output_file,
+        simple_prompt=simple_prompt,
     )
     print(metrics)
 

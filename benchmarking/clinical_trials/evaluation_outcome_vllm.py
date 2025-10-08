@@ -20,6 +20,7 @@ from typing import List, Dict, Tuple
 
 import pandas as pd
 import numpy as np
+from tqdm import tqdm
 from sklearn.metrics import (
     accuracy_score, precision_score, recall_score, f1_score,
     roc_auc_score, average_precision_score, confusion_matrix
@@ -75,7 +76,7 @@ def create_model_generate_func(model_name: str, use_instruct: bool = True, **kwa
                     top_p=kwargs.get('top_p', 1.0),
                     frequency_penalty=kwargs.get('frequency_penalty', 0.0),
                     presence_penalty=kwargs.get('presence_penalty', 0.0),
-                    max_tokens=kwargs.get('max_tokens', 256),
+                    max_tokens=kwargs.get('max_tokens', 512),
                 )
                 text = response.choices[0].text
                 return text if text is not None else ""
@@ -233,20 +234,50 @@ def _row_to_jsonable_dict(row: pd.Series) -> dict:
     return {str(k): _safe(v) for k, v in row.items()}
 
 
-def build_prompt_outcome_json(row: pd.Series) -> str:
+def build_prompt_outcome_json(row: pd.Series, simple_prompt: bool = False) -> str:
+    """
+    Build prompt for clinical trial outcome prediction.
+    
+    Args:
+        row: DataFrame row with trial data
+        simple_prompt: If True, use simple prompt with only key fields (better for pretrain models)
+                      If False, use full JSON prompt with all fields (better for instruct models)
+    """
     record = _row_to_jsonable_dict(row)
     # Avoid leakage fields
     for k in ["outcome", "label", "overall_status", "why_stop", "why_stopped"]:
         if k in record:
             record.pop(k)
-    record_str = json.dumps(record, ensure_ascii=False)
-    prompt = (
-        "Given a clinical trial record in JSON format, predict whether the trial was ultimately successful or failed.\n\n"
-        "Return your answer as a JSON object with this exact format:\n"
-        '{"prediction": "Successful" or "Failed"}\n\n'
-        f"Clinical trial record:\n{record_str}"
-    )
-    return prompt
+    
+    if simple_prompt:
+        # Simple prompt format similar to QA evaluation - better for pretrain models like Med-LLaMA
+        phase = str(record.get("phase", "unknown"))
+        condition = str(record.get("condition", "unknown"))
+        drugs = str(record.get("drugs", "unknown"))
+        
+        prompt = f"""You are a clinical trial expert. Predict whether the following clinical trial was ultimately Successful or Failed.
+
+Clinical Trial Information:
+Phase: {phase}
+Condition: {condition}
+Drug(s): {drugs}
+
+Based on the information above, was this trial ultimately:
+A. Successful
+B. Failed
+
+Answer:"""
+        return prompt
+    else:
+        # Full JSON format - better for instruct models (Qwen, MedGemma, etc.)
+        record_str = json.dumps(record, ensure_ascii=False)
+        prompt = (
+            "Given a clinical trial record in JSON format, predict whether the trial was ultimately successful or failed.\n\n"
+            "Return your answer as a JSON object with this exact format:\n"
+            '{"prediction": "Successful" or "Failed"}\n\n'
+            f"Clinical trial record:\n{record_str}"
+        )
+        return prompt
 
 
 def evaluate_outcome_dataset(
@@ -277,7 +308,7 @@ def evaluate_outcome_dataset(
     targets: List[str] = []
     detailed_results = []
     
-    for idx, row in df.iterrows():
+    for idx, row in tqdm(df.iterrows(), total=len(df), desc="Evaluating HINT outcome"):
         prompt = str(row['prompt'])
         output_text = gen(prompt)
         parsed = parse_outcome(output_text)
@@ -319,6 +350,7 @@ def evaluate_outcome_from_standardized(
     max_tokens: int,
     sample_size: int = None,
     output_file: str = None,
+    simple_prompt: bool = False,
 ) -> Dict[str, float]:
     df = pd.read_csv(csv_path)
 
@@ -344,9 +376,9 @@ def evaluate_outcome_from_standardized(
         has_labels = True
         targets = ["Successful" if int(x) == 1 else "Failed" for x in df['label'].tolist()]
 
-    for idx, row in df.iterrows():
+    for idx, row in tqdm(df.iterrows(), total=len(df), desc="Evaluating HINT standardized"):
         trial_id = str(row.get('nct_id', row.get('nctid', idx)))
-        prompt = build_prompt_outcome_json(row)
+        prompt = build_prompt_outcome_json(row, simple_prompt=simple_prompt)
         output_text = gen(prompt)
         parsed = parse_outcome(output_text)
         preds.append(parsed)
@@ -383,15 +415,17 @@ def main():
     parser.add_argument("--standardized_csv", help="Path to standardized HINT CSV; JSON prompts will be built from full rows")
     parser.add_argument("--model_name", default="med-llama3-8b", help="Served model name in vLLM server")
     parser.add_argument("--use_instruct", default="true", help="Use chat/instruct format (true/false)")
+    parser.add_argument("--simple_prompt", default="false", help="Use simple prompt (true) or full JSON prompt (false)")
     parser.add_argument("--temperature", type=float, default=0.0)
-    parser.add_argument("--max_tokens", type=int, default=256)
+    parser.add_argument("--max_tokens", type=int, default=512)
     parser.add_argument("--sample_size", type=int, default=0, help="Evaluate only N samples (0=all)")
     parser.add_argument("--output_file", default=None, help="Output JSONL file for detailed per-sample results")
 
     args = parser.parse_args()
     use_instruct = args.use_instruct.lower() in ("true", "1", "yes", "on")
+    simple_prompt = args.simple_prompt.lower() in ("true", "1", "yes", "on")
 
-    print(f"Testing server connection to model '{args.model_name}' (instruct={use_instruct})...")
+    print(f"Testing server connection to model '{args.model_name}' (instruct={use_instruct}, simple_prompt={simple_prompt})...")
     if not test_server_connection(args.model_name, use_instruct):
         print("ERROR: Cannot connect to vLLM server")
         return
@@ -410,6 +444,7 @@ def main():
             max_tokens=args.max_tokens,
             sample_size=args.sample_size if args.sample_size > 0 else None,
             output_file=args.output_file,
+            simple_prompt=simple_prompt,
         )
     else:
         metrics = evaluate_outcome_dataset(
