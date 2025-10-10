@@ -40,7 +40,9 @@ def extract_predictions_and_ground_truth(results: Dict[str, Any]) -> tuple:
     Extract predictions and ground truth from evaluation results.
     
     Returns:
-        tuple: (predictions, ground_truth, valid_indices)
+        tuple: (predictions, ground_truth, valid_indices, skipped_count)
+        - Null/empty predictions are treated as "__NO_PREDICTION__" (counted as wrong)
+        - Only skip if ground truth is missing
     """
     if 'results' not in results:
         raise ValueError("Results file does not contain 'results' field")
@@ -48,18 +50,28 @@ def extract_predictions_and_ground_truth(results: Dict[str, Any]) -> tuple:
     predictions = []
     ground_truth = []
     valid_indices = []
+    skipped_count = 0
     
     for idx, result in enumerate(results['results']):
-        pred = result.get('predicted', '').strip()
-        gt = result.get('ground_truth', '').strip()
+        gt = (result.get('ground_truth') or '').strip()
         
-        # Only include samples where both prediction and ground truth are valid
-        if pred and gt:
-            predictions.append(pred)
-            ground_truth.append(gt)
-            valid_indices.append(idx)
+        # Skip only if ground truth is missing
+        if not gt:
+            skipped_count += 1
+            continue
+        
+        # If prediction is null/empty, treat as failed prediction (wrong answer)
+        pred = result.get('predicted')
+        if pred is None or (isinstance(pred, str) and pred.strip() == ''):
+            pred = '__NO_PREDICTION__'  # Placeholder for failed predictions
+        else:
+            pred = pred.strip()
+        
+        predictions.append(pred)
+        ground_truth.append(gt)
+        valid_indices.append(idx)
     
-    return predictions, ground_truth, valid_indices
+    return predictions, ground_truth, valid_indices, skipped_count
 
 
 def compute_mc_classification_metrics(predictions: List[str], 
@@ -80,22 +92,51 @@ def compute_mc_classification_metrics(predictions: List[str],
             'precision_macro': 0.0,
             'recall_macro': 0.0,
             'f1_score_macro': 0.0,
+            'precision_macro_valid_only': 0.0,
+            'recall_macro_valid_only': 0.0,
+            'f1_score_macro_valid_only': 0.0,
             'roc_auc_ovr': 0.0,
             'roc_auc_ovo': 0.0,
             'evaluated': 0,
+            'failed_predictions': 0,
             'skipped': 0,
             'total': 0,
+            'invalid_predictions': 0,
+            'num_classes': 0,
+            'num_valid_classes': 0,
+            'unique_labels': [],
+            'valid_classes': [],
+            'per_class_metrics': {},
+            'confusion_matrix': [],
         }
+    
+    # Count failed predictions (null/empty responses)
+    failed_count = sum(1 for pred in predictions if pred == '__NO_PREDICTION__')
     
     # Get unique labels
     unique_labels = sorted(list(set(ground_truth + predictions)))
     num_classes = len(unique_labels)
     
-    # Compute basic metrics
+    # Identify valid classes (those that exist in ground truth)
+    valid_classes = sorted(list(set(ground_truth)))
+    num_valid_classes = len(valid_classes)
+    
+    # Count invalid predictions (predictions not in ground truth classes, excluding failed predictions)
+    invalid_count = sum(1 for pred in predictions if pred not in valid_classes and pred != '__NO_PREDICTION__')
+    
+    # Compute basic metrics (over all classes including hallucinated ones)
     accuracy = accuracy_score(ground_truth, predictions)
     precision = precision_score(ground_truth, predictions, average='macro', zero_division=0)
     recall = recall_score(ground_truth, predictions, average='macro', zero_division=0)
     f1 = f1_score(ground_truth, predictions, average='macro', zero_division=0)
+    
+    # Compute metrics over VALID classes only (exclude hallucinated answer choices)
+    precision_valid = precision_score(ground_truth, predictions, average='macro', 
+                                     zero_division=0, labels=valid_classes)
+    recall_valid = recall_score(ground_truth, predictions, average='macro', 
+                               zero_division=0, labels=valid_classes)
+    f1_valid = f1_score(ground_truth, predictions, average='macro', 
+                       zero_division=0, labels=valid_classes)
     
     # Compute per-class metrics
     precision_per_class = precision_score(ground_truth, predictions, average=None, 
@@ -114,33 +155,40 @@ def compute_mc_classification_metrics(predictions: List[str],
             'f1_score': float(f1_per_class[i]),
         }
     
-    # Compute ROC-AUC if we have more than 2 classes
+    # Compute ROC-AUC using VALID classes only (exclude hallucinated predictions)
     roc_auc_ovr = 0.0
     roc_auc_ovo = 0.0
     
-    if num_classes >= 2:
+    if num_valid_classes >= 2:
         try:
-            # Convert labels to numeric for ROC-AUC calculation
-            label_to_idx = {label: idx for idx, label in enumerate(unique_labels)}
-            y_true_numeric = np.array([label_to_idx[label] for label in ground_truth])
-            y_pred_numeric = np.array([label_to_idx[label] for label in predictions])
+            # Convert labels to numeric for ROC-AUC calculation (using valid classes only)
+            label_to_idx = {label: idx for idx, label in enumerate(valid_classes)}
             
-            # Create one-hot encoding for multi-class ROC-AUC
-            y_true_onehot = np.zeros((len(y_true_numeric), num_classes))
-            y_pred_onehot = np.zeros((len(y_pred_numeric), num_classes))
-            y_true_onehot[np.arange(len(y_true_numeric)), y_true_numeric] = 1
-            y_pred_onehot[np.arange(len(y_pred_numeric)), y_pred_numeric] = 1
+            # Filter to only include predictions that are in valid classes
+            valid_pred_mask = [pred in valid_classes for pred in predictions]
+            y_true_filtered = [gt for gt, mask in zip(ground_truth, valid_pred_mask) if mask]
+            y_pred_filtered = [pred for pred, mask in zip(predictions, valid_pred_mask) if mask]
             
-            if num_classes == 2:
-                # Binary classification
-                roc_auc_ovr = roc_auc_score(y_true_onehot[:, 1], y_pred_onehot[:, 1])
-                roc_auc_ovo = roc_auc_ovr
-            else:
-                # Multi-class classification
-                roc_auc_ovr = roc_auc_score(y_true_onehot, y_pred_onehot, 
-                                           average='macro', multi_class='ovr')
-                roc_auc_ovo = roc_auc_score(y_true_onehot, y_pred_onehot, 
-                                           average='macro', multi_class='ovo')
+            if len(y_true_filtered) > 0:
+                y_true_numeric = np.array([label_to_idx[label] for label in y_true_filtered])
+                y_pred_numeric = np.array([label_to_idx[label] for label in y_pred_filtered])
+                
+                # Create one-hot encoding for multi-class ROC-AUC
+                y_true_onehot = np.zeros((len(y_true_numeric), num_valid_classes))
+                y_pred_onehot = np.zeros((len(y_pred_numeric), num_valid_classes))
+                y_true_onehot[np.arange(len(y_true_numeric)), y_true_numeric] = 1
+                y_pred_onehot[np.arange(len(y_pred_numeric)), y_pred_numeric] = 1
+                
+                if num_valid_classes == 2:
+                    # Binary classification
+                    roc_auc_ovr = roc_auc_score(y_true_onehot[:, 1], y_pred_onehot[:, 1])
+                    roc_auc_ovo = roc_auc_ovr
+                else:
+                    # Multi-class classification
+                    roc_auc_ovr = roc_auc_score(y_true_onehot, y_pred_onehot, 
+                                               average='macro', multi_class='ovr')
+                    roc_auc_ovo = roc_auc_score(y_true_onehot, y_pred_onehot, 
+                                               average='macro', multi_class='ovo')
         except Exception as e:
             print(f"Warning: Could not compute ROC-AUC: {e}")
     
@@ -152,13 +200,20 @@ def compute_mc_classification_metrics(predictions: List[str],
         'precision_macro': float(precision),
         'recall_macro': float(recall),
         'f1_score_macro': float(f1),
+        'precision_macro_valid_only': float(precision_valid),
+        'recall_macro_valid_only': float(recall_valid),
+        'f1_score_macro_valid_only': float(f1_valid),
         'roc_auc_ovr': float(roc_auc_ovr),  # One-vs-Rest
         'roc_auc_ovo': float(roc_auc_ovo),  # One-vs-One
         'evaluated': len(predictions),
+        'failed_predictions': failed_count,
         'skipped': 0,  # Will be updated by caller
         'total': len(predictions),
         'num_classes': num_classes,
+        'num_valid_classes': num_valid_classes,
+        'invalid_predictions': invalid_count,
         'unique_labels': unique_labels,
+        'valid_classes': valid_classes,
         'per_class_metrics': per_class_metrics,
         'confusion_matrix': cm.tolist(),
     }
@@ -182,15 +237,14 @@ def compute_metrics_from_file(input_file: str) -> Dict[str, Any]:
     results = load_evaluation_results(input_file)
     
     # Extract predictions and ground truth
-    predictions, ground_truth, valid_indices = extract_predictions_and_ground_truth(results)
+    predictions, ground_truth, valid_indices, skipped_samples = extract_predictions_and_ground_truth(results)
     
     # Get total number of samples
     total_samples = len(results.get('results', []))
-    skipped_samples = total_samples - len(predictions)
     
     print(f"  Total samples: {total_samples}")
-    print(f"  Valid predictions: {len(predictions)}")
-    print(f"  Skipped samples: {skipped_samples}")
+    print(f"  Evaluated: {len(predictions)}")
+    print(f"  Skipped samples (missing ground truth): {skipped_samples}")
     
     # Compute metrics
     metrics = compute_mc_classification_metrics(predictions, ground_truth)
@@ -212,19 +266,45 @@ def print_metrics_summary(metrics: Dict[str, Any], file_name: str = None):
     
     print(f"Total Samples:     {metrics['total']}")
     print(f"Evaluated:         {metrics['evaluated']}")
-    print(f"Skipped:           {metrics['skipped']}")
+    
+    # Show failed predictions if any
+    if metrics.get('failed_predictions', 0) > 0:
+        failed_pct = metrics['failed_predictions'] / metrics['evaluated'] * 100
+        print(f"Failed Predictions: {metrics['failed_predictions']} ({failed_pct:.1f}%) - counted as WRONG")
+    
+    print(f"Skipped:           {metrics['skipped']} (missing ground truth)")
     print(f"Number of Classes: {metrics['num_classes']}")
-    print(f"Unique Labels:     {', '.join(metrics['unique_labels'])}")
+    print(f"Valid Classes:     {metrics['num_valid_classes']} (in ground truth)")
+    
+    if metrics['invalid_predictions'] > 0:
+        invalid_pct = metrics['invalid_predictions'] / metrics['evaluated'] * 100
+        print(f"Invalid Predictions: {metrics['invalid_predictions']} ({invalid_pct:.1f}%) - hallucinated answers")
+    
+    # Filter out __NO_PREDICTION__ from display
+    display_labels = [l for l in metrics['unique_labels'] if l != '__NO_PREDICTION__']
+    print(f"Unique Labels:     {', '.join(display_labels)}")
     print()
     print(f"Accuracy:          {metrics['accuracy']:.4f} ({metrics['accuracy']*100:.2f}%)")
     print(f"Precision (macro): {metrics['precision_macro']:.4f}")
     print(f"Recall (macro):    {metrics['recall_macro']:.4f}")
     print(f"F1-Score (macro):  {metrics['f1_score_macro']:.4f}")
     
-    if metrics['roc_auc_ovr'] > 0:
-        print(f"ROC-AUC (OvR):     {metrics['roc_auc_ovr']:.4f}")
-    if metrics['roc_auc_ovo'] > 0:
-        print(f"ROC-AUC (OvO):     {metrics['roc_auc_ovo']:.4f}")
+    # Show valid-only metrics if there are invalid predictions
+    if metrics['invalid_predictions'] > 0:
+        print(f"\n** Metrics over VALID classes only (excluding hallucinated answers) **")
+        print(f"Precision (macro): {metrics['precision_macro_valid_only']:.4f}")
+        print(f"Recall (macro):    {metrics['recall_macro_valid_only']:.4f}")
+        print(f"F1-Score (macro):  {metrics['f1_score_macro_valid_only']:.4f}")
+        if metrics['roc_auc_ovr'] > 0:
+            print(f"ROC-AUC (OvR):     {metrics['roc_auc_ovr']:.4f}")
+        if metrics['roc_auc_ovo'] > 0:
+            print(f"ROC-AUC (OvO):     {metrics['roc_auc_ovo']:.4f}")
+    else:
+        # No invalid predictions, show ROC-AUC normally
+        if metrics['roc_auc_ovr'] > 0:
+            print(f"ROC-AUC (OvR):     {metrics['roc_auc_ovr']:.4f}")
+        if metrics['roc_auc_ovo'] > 0:
+            print(f"ROC-AUC (OvO):     {metrics['roc_auc_ovo']:.4f}")
     
     # Print per-class metrics
     if metrics.get('per_class_metrics'):
