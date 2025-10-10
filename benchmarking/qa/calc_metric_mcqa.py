@@ -97,6 +97,7 @@ def compute_mc_classification_metrics(predictions: List[str],
             'f1_score_macro_valid_only': 0.0,
             'roc_auc_ovr': 0.0,
             'roc_auc_ovo': 0.0,
+            'pr_auc': 0.0,
             'evaluated': 0,
             'failed_predictions': 0,
             'skipped': 0,
@@ -155,9 +156,10 @@ def compute_mc_classification_metrics(predictions: List[str],
             'f1_score': float(f1_per_class[i]),
         }
     
-    # Compute ROC-AUC using VALID classes only (exclude hallucinated predictions)
+    # Compute ROC-AUC and PR-AUC using VALID classes only (exclude hallucinated predictions)
     roc_auc_ovr = 0.0
     roc_auc_ovo = 0.0
+    pr_auc_ovr = 0.0
     
     if num_valid_classes >= 2:
         try:
@@ -183,14 +185,18 @@ def compute_mc_classification_metrics(predictions: List[str],
                     # Binary classification
                     roc_auc_ovr = roc_auc_score(y_true_onehot[:, 1], y_pred_onehot[:, 1])
                     roc_auc_ovo = roc_auc_ovr
+                    # PR-AUC for binary classification
+                    pr_auc_ovr = average_precision_score(y_true_onehot[:, 1], y_pred_onehot[:, 1])
                 else:
                     # Multi-class classification
                     roc_auc_ovr = roc_auc_score(y_true_onehot, y_pred_onehot, 
                                                average='macro', multi_class='ovr')
                     roc_auc_ovo = roc_auc_score(y_true_onehot, y_pred_onehot, 
                                                average='macro', multi_class='ovo')
+                    # PR-AUC for multi-class (macro-averaged)
+                    pr_auc_ovr = average_precision_score(y_true_onehot, y_pred_onehot, average='macro')
         except Exception as e:
-            print(f"Warning: Could not compute ROC-AUC: {e}")
+            print(f"Warning: Could not compute ROC-AUC/PR-AUC: {e}")
     
     # Compute confusion matrix
     cm = confusion_matrix(ground_truth, predictions, labels=unique_labels)
@@ -205,6 +211,7 @@ def compute_mc_classification_metrics(predictions: List[str],
         'f1_score_macro_valid_only': float(f1_valid),
         'roc_auc_ovr': float(roc_auc_ovr),  # One-vs-Rest
         'roc_auc_ovo': float(roc_auc_ovo),  # One-vs-One
+        'pr_auc': float(pr_auc_ovr),  # Precision-Recall AUC
         'evaluated': len(predictions),
         'failed_predictions': failed_count,
         'skipped': 0,  # Will be updated by caller
@@ -299,12 +306,16 @@ def print_metrics_summary(metrics: Dict[str, Any], file_name: str = None):
             print(f"ROC-AUC (OvR):     {metrics['roc_auc_ovr']:.4f}")
         if metrics['roc_auc_ovo'] > 0:
             print(f"ROC-AUC (OvO):     {metrics['roc_auc_ovo']:.4f}")
+        if metrics.get('pr_auc', 0) > 0:
+            print(f"PR-AUC:            {metrics['pr_auc']:.4f}")
     else:
         # No invalid predictions, show ROC-AUC normally
         if metrics['roc_auc_ovr'] > 0:
             print(f"ROC-AUC (OvR):     {metrics['roc_auc_ovr']:.4f}")
         if metrics['roc_auc_ovo'] > 0:
             print(f"ROC-AUC (OvO):     {metrics['roc_auc_ovo']:.4f}")
+        if metrics.get('pr_auc', 0) > 0:
+            print(f"PR-AUC:            {metrics['pr_auc']:.4f}")
     
     # Print per-class metrics
     if metrics.get('per_class_metrics'):

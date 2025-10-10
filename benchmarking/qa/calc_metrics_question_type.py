@@ -12,7 +12,7 @@ from typing import Dict, List, Any, Tuple
 import numpy as np
 from sklearn.metrics import (
     accuracy_score, precision_score, recall_score, f1_score,
-    roc_auc_score, confusion_matrix
+    roc_auc_score, confusion_matrix, average_precision_score
 )
 
 
@@ -106,6 +106,7 @@ def compute_classification_metrics(predictions: List[str],
             'f1_score_macro': 0.0,
             'roc_auc_ovr': 0.0,
             'roc_auc_ovo': 0.0,
+            'pr_auc': 0.0,
             'evaluated': 0,
             'skipped': 0,
             'total': 0,
@@ -146,9 +147,10 @@ def compute_classification_metrics(predictions: List[str],
             'f1_score': float(f1_per_class[i]),
         }
     
-    # Compute ROC-AUC if we have more than 2 classes
+    # Compute ROC-AUC and PR-AUC if we have more than 2 classes
     roc_auc_ovr = 0.0
     roc_auc_ovo = 0.0
+    pr_auc_ovr = 0.0
     
     if num_classes >= 2:
         try:
@@ -184,14 +186,18 @@ def compute_classification_metrics(predictions: List[str],
                     # Binary classification
                     roc_auc_ovr = roc_auc_score(y_true_onehot[:, 1], y_pred_onehot[:, 1])
                     roc_auc_ovo = roc_auc_ovr
+                    # PR-AUC for binary classification
+                    pr_auc_ovr = average_precision_score(y_true_onehot[:, 1], y_pred_onehot[:, 1])
                 else:
                     # Multi-class classification
                     roc_auc_ovr = roc_auc_score(y_true_onehot, y_pred_onehot, 
                                                average='macro', multi_class='ovr')
                     roc_auc_ovo = roc_auc_score(y_true_onehot, y_pred_onehot, 
                                                average='macro', multi_class='ovo')
+                    # PR-AUC for multi-class (macro-averaged)
+                    pr_auc_ovr = average_precision_score(y_true_onehot, y_pred_onehot, average='macro')
         except Exception as e:
-            print(f"  Warning: Could not compute ROC-AUC for {format_name}: {e}")
+            print(f"  Warning: Could not compute ROC-AUC/PR-AUC for {format_name}: {e}")
     
     # Compute confusion matrix
     cm = confusion_matrix(ground_truth, predictions, labels=unique_labels)
@@ -204,6 +210,7 @@ def compute_classification_metrics(predictions: List[str],
         'f1_score_macro': float(f1),
         'roc_auc_ovr': float(roc_auc_ovr),
         'roc_auc_ovo': float(roc_auc_ovo),
+        'pr_auc': float(pr_auc_ovr),
         'evaluated': len(predictions),
         'failed_predictions': failed_count,
         'skipped': 0,  # Will be updated by caller
@@ -266,6 +273,17 @@ def compute_weighted_aggregate_metrics(all_metrics: Dict[str, Dict[str, Any]]) -
         weighted_roc_ovr = 0.0
         weighted_roc_ovo = 0.0
     
+    # For PR-AUC, only include formats where it was computed
+    formats_with_pr = {name: m for name, m in all_metrics.items() if m.get('pr_auc', 0) > 0}
+    if formats_with_pr:
+        pr_total_samples = sum(m['evaluated'] for m in formats_with_pr.values())
+        pr_weights = {name: m['evaluated'] / pr_total_samples 
+                     for name, m in formats_with_pr.items()}
+        weighted_pr_auc = sum(m['pr_auc'] * pr_weights[name] 
+                             for name, m in formats_with_pr.items())
+    else:
+        weighted_pr_auc = 0.0
+    
     aggregate = {
         'total_evaluated': total_samples,
         'total_samples': sum(m['total'] for m in all_metrics.values()),
@@ -278,6 +296,7 @@ def compute_weighted_aggregate_metrics(all_metrics: Dict[str, Dict[str, Any]]) -
         'weighted_f1_score_macro': float(weighted_f1),
         'weighted_roc_auc_ovr': float(weighted_roc_ovr),
         'weighted_roc_auc_ovo': float(weighted_roc_ovo),
+        'weighted_pr_auc': float(weighted_pr_auc),
         'per_format_summary': {
             name: {
                 'samples': m['evaluated'],
@@ -336,6 +355,8 @@ def print_metrics_summary(metrics: Dict[str, Any], format_name: str = None):
         print(f"ROC-AUC (OvR):     {metrics['roc_auc_ovr']:.4f}")
     if metrics['roc_auc_ovo'] > 0:
         print(f"ROC-AUC (OvO):     {metrics['roc_auc_ovo']:.4f}")
+    if metrics.get('pr_auc', 0) > 0:
+        print(f"PR-AUC:            {metrics['pr_auc']:.4f}")
     
     # Print per-class metrics
     if metrics.get('per_class_metrics'):
@@ -371,6 +392,8 @@ def print_aggregate_summary(aggregate: Dict[str, Any]):
         print(f"ROC-AUC (OvR):     {aggregate['weighted_roc_auc_ovr']:.4f}")
     if aggregate['weighted_roc_auc_ovo'] > 0:
         print(f"ROC-AUC (OvO):     {aggregate['weighted_roc_auc_ovo']:.4f}")
+    if aggregate.get('weighted_pr_auc', 0) > 0:
+        print(f"PR-AUC:            {aggregate['weighted_pr_auc']:.4f}")
     
     print(f"\nPer-Format Performance:")
     print(f"{'Format':<20} {'Accuracy':<12} {'F1-Score':<12}")
