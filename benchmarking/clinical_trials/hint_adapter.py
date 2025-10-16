@@ -174,6 +174,97 @@ def _derive_outcome_from_status(status: str) -> Optional[int]:
     return _STATUS_TO_OUTCOME.get(key, None)
 
 
+def _refine_age_to_months(x):
+    """Convert age strings like '18 Years', '6 Months' to months if possible."""
+    if not isinstance(x, str):
+        return x
+    s = x.strip().lower()
+    try:
+        import re
+        m = re.search(r"[-+]?(?:\d+\.\d+|\d+|\.\d+)", s)
+        if not m:
+            return x
+        number = float(m.group(0))
+    except Exception:
+        return x
+    if "year" in s:
+        return number * 12
+    if "month" in s:
+        return number
+    if "week" in s:
+        return number / 4.286
+    if "day" in s:
+        return number / 30
+    if "hour" in s:
+        return number / 24 / 30
+    if "minute" in s:
+        return number / 60 / 24 / 30
+    return x
+
+
+def _get_row_val(row: pd.Series, key: str):
+    val = row.get(key, None)
+    if isinstance(val, float) and pd.isna(val):
+        return None
+    if isinstance(val, str) and val.strip().lower() in ("", "none", "nan"):
+        return None
+    return val
+
+
+def _build_hint_rich_section(row: pd.Series, max_list_chars: int = 500) -> str:
+    """Assemble additional study details from standardized HINT fields.
+
+    Avoids leakage fields like overall_status and why_stop.
+    """
+    lines: List[str] = []
+
+    # Study design
+    design_keys = [
+        "study_type",
+        "allocation",
+        "intervention_model",
+        "primary_purpose",
+        "masking",
+    ]
+    design_vals = [f"- {k}: {_get_row_val(row, k)}" for k in design_keys if _get_row_val(row, k) is not None]
+    if design_vals:
+        lines.append("Study Design:")
+        lines.extend(design_vals)
+
+    # Scale and arms
+    for k in ["enrollment", "number_of_arms"]:
+        v = _get_row_val(row, k)
+        if v is not None:
+            lines.append(f"- {k}: {v}")
+
+    # Eligibility snapshot
+    gender = _get_row_val(row, "gender")
+    hv = _get_row_val(row, "healthy_volunteers")
+    min_age = _refine_age_to_months(_get_row_val(row, "minimum_age"))
+    max_age = _refine_age_to_months(_get_row_val(row, "maximum_age"))
+    elig_parts = []
+    if gender is not None:
+        elig_parts.append(f"gender={gender}")
+    if hv is not None:
+        elig_parts.append(f"healthy_volunteers={hv}")
+    if min_age is not None:
+        elig_parts.append(f"min_age_months={min_age}")
+    if max_age is not None:
+        elig_parts.append(f"max_age_months={max_age}")
+    if elig_parts:
+        lines.append("Eligibility: " + ", ".join(elig_parts))
+
+    # Interventions and codes (use HINT fields when present)
+    for k in ["drugs", "intervention_name", "intervention_type", "icdcodes", "keyword"]:
+        v = _get_row_val(row, k)
+        if isinstance(v, str) and len(v) > max_list_chars:
+            v = v[:max_list_chars] + " ..."
+        if v is not None:
+            lines.append(f"- {k}: {v}")
+
+    return "\n".join(lines)
+
+
 def adapt_hint_dataframe(df: pd.DataFrame) -> pd.DataFrame:
     """Adapt HINT DataFrame with minimal logic, delegating to core utilities.
     Steps:
@@ -279,7 +370,17 @@ def generate_llm_outcome_dataset(
         import sys as _sys
         _sys.modules.setdefault('preprocess_trial', _preprocess_trial)
         from clinical_trial.outcome_prediction import create_llm_dataset_for_trial_outcome_prediction as _mk
-        return _mk(df, include_labels=include_labels)
+        llm_df = _mk(df, include_labels=include_labels)
+        # Augment prompts with additional study details when available
+        rich_blocks = [_build_hint_rich_section(row) for _, row in df.iterrows()]
+        augmented_prompts = []
+        for base, rich in zip(llm_df['prompt'].tolist(), rich_blocks):
+            if rich:
+                augmented_prompts.append(f"{base}\n\nAdditional Study Details:\n{rich}")
+            else:
+                augmented_prompts.append(base)
+        llm_df['prompt'] = augmented_prompts
+        return llm_df
     except Exception:
         pass
 
@@ -296,6 +397,7 @@ def generate_llm_outcome_dataset(
         criteria = '' if pd.isna(criteria) else str(criteria)
         if max_criteria_chars is not None and isinstance(criteria, str) and len(criteria) > max_criteria_chars:
             criteria = criteria[:max_criteria_chars] + "\n...[truncated]"
+        rich = _build_hint_rich_section(row)
         prompt = f"""
 You are a clinical trial analyst. Based on the following information, determine whether this clinical trial was ultimately successful or failed.
 
@@ -306,6 +408,9 @@ Trial Information:
 - Phase: {phase}
 - Condition: {condition}
 - Eligibility Criteria: {criteria}
+
+Additional Study Details:
+{rich}
 
 Question: Based on this information, predict whether the trial completed successfully or failed.
 Respond with either "Successful" or "Failed".
